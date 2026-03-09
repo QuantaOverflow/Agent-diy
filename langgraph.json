@@ -1,0 +1,8 @@
+{
+  "graphs": {
+    "agent": "src/agent_diy/core/agent.py:graph"
+  },
+  "env": ".env",
+  "python_version": "3.12",
+  "dependencies": ["."]
+}
