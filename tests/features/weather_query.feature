@@ -40,3 +40,27 @@ Feature: Weather query
     Given a running agent
     When I ask "你好"
     Then the response should not contain weather information
+
+  @e2e
+  Scenario Outline: Agent returns sunrise and sunset information
+    Given a running agent
+    When I ask "<question>"
+    Then the response should contain sunrise sunset information
+
+    Examples:
+      | question           |
+      | 北京今天日出日落时间 |
+      | 上海日落几点       |
+      | 天津日出时间       |
+
+  @e2e
+  Scenario Outline: Agent returns common weather metrics
+    Given a running agent
+    When I ask "<question>"
+    Then the response should contain weather metric information
+
+    Examples:
+      | question             |
+      | 北京现在湿度多少     |
+      | 上海现在风力多大     |
+      | 天津当前体感温度如何 |

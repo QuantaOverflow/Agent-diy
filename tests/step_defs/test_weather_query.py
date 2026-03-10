@@ -102,3 +102,19 @@ def then_response_should_not_be_guess_from_current_weather(weather_context):
         response,
     )
     assert has_future_cue
+
+
+@then("the response should contain sunrise sunset information")
+def then_response_contains_sunrise_sunset_info(weather_context):
+    response = weather_context["response"]
+    has_sunrise_or_sunset = re.search(r"(日出|日落|sunrise|sunset)", response, re.IGNORECASE)
+    has_time_text = re.search(r"(\d{1,2}:\d{2})", response)
+    assert has_sunrise_or_sunset and has_time_text
+
+
+@then("the response should contain weather metric information")
+def then_response_contains_weather_metric_info(weather_context):
+    response = weather_context["response"]
+    has_metric = re.search(r"(湿度|体感|风力|风速|%|级|hPa|能见度)", response)
+    has_numeric = re.search(r"\d+", response)
+    assert has_metric and has_numeric
