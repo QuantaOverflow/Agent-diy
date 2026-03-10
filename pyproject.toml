@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Composable LangGraph-based agent framework"
 requires-python = ">=3.12"
 dependencies = [
+  "alibabacloud_iqs20241111>=1.7.2",
   "langchain>=0.3.0",
   "langchain-core>=0.3.0",
   "langgraph>=0.4.0",

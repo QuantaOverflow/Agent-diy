@@ -50,7 +50,7 @@ def _normalize_sun_query_date(date_text: str) -> str:
 
 @tool
 def get_current_weather(city: str = "北京") -> str:
-    """Get current weather for a city. Defaults to Beijing when city is not specified."""
+    """Get current weather metrics for a city. Prefer web_search when user explicitly asks to 搜/查."""
 
     api_key = os.getenv("QWEATHER_API_KEY")
     api_host = os.getenv("QWEATHER_API_HOST")
@@ -103,7 +103,7 @@ def get_current_weather(city: str = "北京") -> str:
 
 @tool
 def get_weather_forecast(city: str = "北京") -> str:
-    """Get 3-day weather forecast for a city. Defaults to Beijing."""
+    """Get 3-day weather forecast. Prefer web_search when user explicitly asks to 搜/查."""
 
     api_key = os.getenv("QWEATHER_API_KEY")
     api_host = os.getenv("QWEATHER_API_HOST")
@@ -153,7 +153,7 @@ def get_weather_forecast(city: str = "北京") -> str:
 
 @tool
 def get_sunrise_sunset(city: str = "北京", date: str = "") -> str:
-    """Get sunrise and sunset times for a city on a given date (YYYYMMDD)."""
+    """Get sunrise/sunset times. Prefer web_search when user explicitly asks to 搜/查."""
 
     api_key = os.getenv("QWEATHER_API_KEY")
     api_host = os.getenv("QWEATHER_API_HOST")

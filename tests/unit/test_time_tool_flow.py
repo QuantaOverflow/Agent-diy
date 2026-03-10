@@ -1,52 +1,35 @@
-"""Unit tests for time-tool execution path in the graph."""
+"""Unit tests for datetime injection into system prompt."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from agent_diy.core.agent import create_agent
 
 
-class ToolCallingFakeModel:
-    """Fake model that requests the time tool and then formats the final reply."""
+def test_current_datetime_injected_in_system_prompt():
+    captured = {}
 
-    def bind_tools(self, _tools):
-        return self
+    class CapturingFakeModel:
+        def bind_tools(self, _tools):
+            return self
 
-    def invoke(self, messages):
-        last = messages[-1]
-        if isinstance(last, HumanMessage) and "几点" in last.content:
-            return AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "get_current_time",
-                        "args": {},
-                        "id": "call_time_1",
-                        "type": "tool_call",
-                    }
-                ],
-            )
+        def invoke(self, messages):
+            captured["system"] = messages[0].content
+            return AIMessage(content="ok")
 
-        if isinstance(last, ToolMessage):
-            return AIMessage(content=f"好的，{last.content}")
-
-        return AIMessage(content="我不确定")
-
-
-def test_time_query_uses_tool_path():
-    agent = create_agent(model=ToolCallingFakeModel())
-    result = agent.invoke(
-        {"messages": [HumanMessage(content="现在几点了")]},
-        config={"configurable": {"thread_id": "unit-time-tool"}},
+    agent = create_agent(model=CapturingFakeModel())
+    agent.invoke(
+        {"messages": [HumanMessage(content="你好")]},
+        config={"configurable": {"thread_id": "unit-datetime-inject"}},
     )
 
-    content = result["messages"][-1].content
-    assert isinstance(content, str)
+    assert "年" in captured["system"]
+    assert "月" in captured["system"]
+    assert "北京时间" in captured["system"]
 
     expected_hour = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%H")
-    assert expected_hour in content
-    assert "北京时间" in content
+    assert expected_hour in captured["system"]

@@ -9,12 +9,16 @@ from zoneinfo import ZoneInfo
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage
-from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
-from agent_diy.tools import get_current_weather, get_sunrise_sunset, get_weather_forecast
+from agent_diy.tools import (
+    get_current_weather,
+    get_sunrise_sunset,
+    get_weather_forecast,
+    web_search,
+)
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 SYSTEM_PROMPT = (
@@ -26,14 +30,16 @@ SYSTEM_PROMPT = (
     "当用户询问湿度、风力、体感温度等常用指标时，调用实时天气工具并返回具体数值。"
     "当用户询问今天/今晚的日出日落时，日出日落工具的 date 参数留空或使用当天日期。"
     "若任一工具返回服务失败或不可用，直接说明失败并建议稍后重试，不要给出估算值。"
+    "当用户询问实时/最新信息（新闻、价格、近期事件等）或明确要求‘搜/查’时，调用网络搜索工具。"
+    "当用户提问包含年份、日期、节假日安排等可能随时间变化的信息时，优先调用网络搜索工具。"
+    "用户明确使用‘搜/查/检索’时，必须调用网络搜索工具，即使问题属于天气等已有专用工具。"
+    "闲聊和稳定通识问题不触发网络搜索。"
+    "天气、日出日落等已有专用工具的问题优先使用专用工具，除非用户明确要求搜索。"
+    "调用网络搜索后必须以搜索结果为准，不得用训练知识质疑或否定搜索结果；"
+    "搜索结果代表互联网实时信息，与训练知识冲突时搜索结果优先。"
+    "当搜索结果中提到某事件'将于'某日期发生，请对比当前日期判断该日期是否已过去；"
+    "若已过去，则该事件已经发生，应据此作答，不得以'尚未发布'等措辞回复。"
 )
-
-
-@tool
-def get_current_time() -> str:
-    """Return current China time (Asia/Shanghai) in HH:MM format."""
-    current_time = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%H:%M")
-    return f"现在是北京时间 {current_time}"
 
 
 def _default_model() -> ChatOpenAI:
@@ -52,12 +58,19 @@ def _build_graph(model: Any = None):
     """Build the StateGraph (uncompiled)."""
     if model is None:
         model = _default_model()
-    tools = [get_current_time, get_current_weather, get_weather_forecast, get_sunrise_sunset]
+    tools = [
+        get_current_weather,
+        get_weather_forecast,
+        get_sunrise_sunset,
+        web_search,
+    ]
     model_with_tools = model.bind_tools(tools)
 
     def llm_call(state: MessagesState):
+        now = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y年%m月%d日 %H:%M")
+        system = SystemMessage(content=SYSTEM_PROMPT + f"\n当前北京时间：{now}")
         response = model_with_tools.invoke(
-            [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+            [system] + state["messages"]
         )
         return {"messages": [response]}
 
