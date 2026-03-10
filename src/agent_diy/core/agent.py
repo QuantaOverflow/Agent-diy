@@ -3,14 +3,33 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain.chat_models import init_chat_model
+from langchain_core.messages import SystemMessage
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode, tools_condition
+from agent_diy.tools import get_current_weather, get_weather_forecast
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+SYSTEM_PROMPT = (
+    "你是一个有用的助手。"
+    "当用户询问天气且未明确城市时，默认使用北京作为城市参数调用天气工具。"
+    "当用户询问今晚、明天、后天或未来天气时，优先调用天气预报工具。"
+    "当用户询问当前天气时，调用实时天气工具。"
+)
+
+
+@tool
+def get_current_time() -> str:
+    """Return current China time (Asia/Shanghai) in HH:MM format."""
+    current_time = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%H:%M")
+    return f"现在是北京时间 {current_time}"
 
 
 def _default_model() -> ChatOpenAI:
@@ -29,15 +48,23 @@ def _build_graph(model: Any = None):
     """Build the StateGraph (uncompiled)."""
     if model is None:
         model = _default_model()
+    tools = [get_current_time, get_current_weather, get_weather_forecast]
+    model_with_tools = model.bind_tools(tools)
 
     def llm_call(state: MessagesState):
-        response = model.invoke(state["messages"])
+        response = model_with_tools.invoke(
+            [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+        )
         return {"messages": [response]}
+
+    tool_node = ToolNode(tools)
 
     builder = StateGraph(MessagesState)
     builder.add_node("llm_call", llm_call)
+    builder.add_node("tools", tool_node)
     builder.add_edge(START, "llm_call")
-    builder.add_edge("llm_call", END)
+    builder.add_conditional_edges("llm_call", tools_condition)
+    builder.add_edge("tools", "llm_call")
     return builder
 
 

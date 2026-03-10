@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 import pytest
@@ -10,8 +11,24 @@ from langchain_core.messages import AIMessage, HumanMessage
 from agent_diy.core import agent as agent_module
 
 
+def pytest_collection_modifyitems(config, items):
+    """Map feature file tags to pytest markers and auto-skip e2e without API key."""
+    for item in items:
+        # pytest-bdd stores tags from feature files in item.get_closest_marker
+        # but we need to check keywords for scenario-level tags
+        if "e2e" in item.keywords:
+            item.add_marker(pytest.mark.e2e)
+            if not os.getenv("DASHSCOPE_API_KEY"):
+                item.add_marker(pytest.mark.skip(reason="DASHSCOPE_API_KEY not set"))
+        if "unit" in item.keywords:
+            item.add_marker(pytest.mark.unit)
+
+
 class FakeModel:
     """Simple deterministic fake model for conversation tests."""
+
+    def bind_tools(self, _tools):
+        return self
 
     def invoke(self, messages):
         human_messages = [m for m in messages if isinstance(m, HumanMessage)]

@@ -3,6 +3,7 @@ Feature: Multi-turn conversation
   I want to have a multi-turn conversation with the agent
   So that the agent remembers context from earlier messages
 
+  @unit
   Scenario: Agent remembers user's name across turns
     Given an agent with memory
     When I say "Hi, my name is Alice"
@@ -10,6 +11,7 @@ Feature: Multi-turn conversation
     And I say "What is my name?"
     Then the response should mention "Alice"
 
+  @unit
   Scenario: Separate conversations are isolated
     Given an agent with memory
     When I start a conversation with thread "t1" saying "My name is Bob"

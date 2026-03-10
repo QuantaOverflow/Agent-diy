@@ -13,6 +13,7 @@ dependencies = [
   "langgraph>=0.4.0",
   "langchain-anthropic>=0.2.0",
   "langgraph-cli[inmem]>=0.4.14",
+  "requests>=2.32.0",
 ]
 
 [dependency-groups]
@@ -28,5 +29,8 @@ packages = ["src/agent_diy"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = ["e2e: end-to-end tests requiring real API"]
+markers = [
+  "e2e: end-to-end tests requiring real API",
+  "unit: unit tests with mocked dependencies",
+]
 addopts = "-ra -m 'not e2e'"
