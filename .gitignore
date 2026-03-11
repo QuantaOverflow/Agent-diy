@@ -33,3 +33,5 @@ htmlcov/
 # IDE/editor
 .vscode/
 .idea/
+credentials.json
+token.json

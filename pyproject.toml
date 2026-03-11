@@ -15,6 +15,7 @@ dependencies = [
   "langchain-anthropic>=0.2.0",
   "langgraph-cli[inmem]>=0.4.14",
   "requests>=2.32.0",
+  "langchain-google-community[gmail]>=3.0.5",
 ]
 
 [dependency-groups]

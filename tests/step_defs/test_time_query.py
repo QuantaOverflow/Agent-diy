@@ -8,7 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from pytest_bdd import given, parsers, scenarios, then, when
 
@@ -58,3 +58,39 @@ def then_response_should_not_contain_time(context):
 
     # 不应包含 HH:MM 格式的时间
     assert not re.search(r"\d{2}:\d{2}", context["response"])
+
+
+class _CapturingModel:
+    def __init__(self, capture: dict):
+        self._capture = capture
+
+    def bind_tools(self, _tools):
+        return self
+
+    def invoke(self, messages):
+        self._capture["captured_system"] = messages[0].content
+        return AIMessage(content="ok")
+
+
+@given("an agent with a capturing model")
+def given_agent_with_capturing_model(context):
+    context["captured_system"] = ""
+    context["agent"] = create_agent(model=_CapturingModel(context))
+
+
+@when("the agent processes a message")
+def when_agent_processes_message(context):
+    context["agent"].invoke(
+        {"messages": [HumanMessage(content="你好")]},
+        config={"configurable": {"thread_id": "unit-datetime-inject"}},
+    )
+
+
+@then("the system prompt should contain the current Beijing datetime")
+def then_system_prompt_contains_beijing_datetime(context):
+    system = context["captured_system"]
+    assert "年" in system
+    assert "月" in system
+    assert "北京时间" in system
+    expected_hour = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%H")
+    assert expected_hour in system

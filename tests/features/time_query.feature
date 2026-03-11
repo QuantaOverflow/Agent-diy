@@ -21,3 +21,9 @@ Feature: Time query
     Given a running agent
     When I ask "你好"
     Then the response should not contain a time string
+
+  @unit
+  Scenario: Current Beijing datetime is injected into system prompt
+    Given an agent with a capturing model
+    When the agent processes a message
+    Then the system prompt should contain the current Beijing datetime

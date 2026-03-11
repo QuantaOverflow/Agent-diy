@@ -6,10 +6,12 @@ from .weather import (
     get_weather_forecast,
 )
 from .search import web_search
+from .gmail_astrology import get_astrology_email
 
 __all__ = [
     "get_current_weather",
     "get_weather_forecast",
     "get_sunrise_sunset",
     "web_search",
+    "get_astrology_email",
 ]

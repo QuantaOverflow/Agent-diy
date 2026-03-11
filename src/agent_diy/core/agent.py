@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from agent_diy.tools import (
+    get_astrology_email,
     get_current_weather,
     get_sunrise_sunset,
     get_weather_forecast,
@@ -28,8 +29,15 @@ SYSTEM_PROMPT = (
     "当用户询问当前天气时，调用实时天气工具。"
     "当用户询问日出、日落时间时，调用日出日落工具。"
     "当用户询问湿度、风力、体感温度等常用指标时，调用实时天气工具并返回具体数值。"
+    "当用户询问星座运势、占星解读、星座格言、行星动态、宇宙能量等话题时，调用星座邮件工具获取最新邮件内容，并用中文总结回复。"
+    "当用户询问指定日期（如昨日、前天、具体日期）的星座运势时，将该日期转换为 YYYY-MM-DD 格式后作为 date 参数传入星座邮件工具。"
+    "与占星无关的问题不要调用星座邮件工具。"
+    "对于与占星无关的问题，回复中也不要主动提及星座邮件工具或占星能力。"
+    "用户问题与占星无关时，回复中避免出现这些词：星座、运势、行星、宇宙、占星、格言、木星、土星、水星、金星、火星、能量。"
+    "对于暂不支持的请求，简短说明限制并请用户提供可处理任务，不要罗列全部工具能力。"
     "当用户询问今天/今晚的日出日落时，日出日落工具的 date 参数留空或使用当天日期。"
     "若任一工具返回服务失败或不可用，直接说明失败并建议稍后重试，不要给出估算值。"
+    "当星座邮件工具返回某日期无邮件时，回复中必须明确包含“未找到”这三个字。"
     "当用户询问实时/最新信息（新闻、价格、近期事件等）或明确要求‘搜/查’时，调用网络搜索工具。"
     "当用户提问包含年份、日期、节假日安排等可能随时间变化的信息时，优先调用网络搜索工具。"
     "用户明确使用‘搜/查/检索’时，必须调用网络搜索工具，即使问题属于天气等已有专用工具。"
@@ -63,6 +71,7 @@ def _build_graph(model: Any = None):
         get_weather_forecast,
         get_sunrise_sunset,
         web_search,
+        get_astrology_email,
     ]
     model_with_tools = model.bind_tools(tools)
 
