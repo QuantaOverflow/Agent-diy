@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import tool
 
@@ -99,12 +100,17 @@ def _get_body_from_api(api_resource: Any, message_id: str) -> str:
 
 
 def _search_query_for_date(date: str) -> str:
-    # Newsletter publish date can lag local date due to timezone differences.
-    # Shift query window one day earlier to align with actual inbox arrival.
-    dt = datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)
+    dt = datetime.strptime(date, "%Y-%m-%d")
     next_day = (dt + timedelta(days=1)).strftime("%Y/%m/%d")
     date_fmt = dt.strftime("%Y/%m/%d")
     return f"from:{ASTROLOGY_SENDER} after:{date_fmt} before:{next_day}"
+
+
+def _today_and_expected_newsletter_date() -> tuple[str, str]:
+    now_bj = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    today = now_bj.strftime("%Y-%m-%d")
+    expected_newsletter_date = (now_bj - timedelta(days=1)).strftime("%Y-%m-%d")
+    return today, expected_newsletter_date
 
 
 def _extract_date_from_metadata(api_resource: Any, message_id: str) -> str:
@@ -129,7 +135,7 @@ def _extract_date_from_metadata(api_resource: Any, message_id: str) -> str:
             continue
         try:
             dt = parsedate_to_datetime(raw_value)
-            return dt.strftime("%Y-%m-%d")
+            return dt.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
         except (TypeError, ValueError):
             continue
     return ""
@@ -177,13 +183,18 @@ def get_astrology_email(date: str = "") -> str:
             if not isinstance(results, list) or not results:
                 return f"未找到 {date} 的星座订阅邮件。"
         else:
-            results = search_tool.invoke(
-                {"query": f"from:{ASTROLOGY_SENDER} newer_than:2d", "max_results": 5}
-            )
-            if not results:
+            today, expected_newsletter_date = _today_and_expected_newsletter_date()
+            expected_query = _search_query_for_date(expected_newsletter_date)
+            results = search_tool.invoke({"query": expected_query, "max_results": 5})
+            expected_date_missing = not isinstance(results, list) or not results
+            if expected_date_missing:
                 results = search_tool.invoke(
-                    {"query": f"from:{ASTROLOGY_SENDER}", "max_results": 5}
+                    {"query": f"from:{ASTROLOGY_SENDER} newer_than:2d", "max_results": 5}
                 )
+                if not results:
+                    results = search_tool.invoke(
+                        {"query": f"from:{ASTROLOGY_SENDER}", "max_results": 5}
+                    )
         if not isinstance(results, list) or not results:
             return f"未找到来自 {ASTROLOGY_SENDER} 的星座订阅邮件。"
 
@@ -196,8 +207,17 @@ def get_astrology_email(date: str = "") -> str:
         if not body:
             return "Gmail 服务返回的邮件正文为空，请稍后重试。"
 
-        horoscope, musings, affirmation = _extract_sections(body)
         email_date = _extract_date_from_metadata(api_resource, message_id)
-        return _format_result(email_date, horoscope, musings, affirmation)
+        horoscope, musings, affirmation = _extract_sections(body)
+        formatted = _format_result(email_date, horoscope, musings, affirmation)
+
+        if not date and email_date and email_date != expected_newsletter_date:
+            return (
+                f"提示：未找到 {today} 对应的星座邮件（按时差应对应 {expected_newsletter_date}），"
+                f"当前最新邮件日期为 {email_date}（PT）。\n"
+                f"{formatted}"
+            )
+
+        return formatted
     except Exception as exc:  # noqa: BLE001 - degrade gracefully in tool runtime
         return f"Gmail 服务暂不可用：{exc}。"

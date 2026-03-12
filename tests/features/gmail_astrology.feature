@@ -17,7 +17,6 @@ Feature: Gmail astrology digest
     When I ask "<question>"
     Then the response should contain astrology content
     And the response should be in Chinese
-    And the response should indicate which date the email is from
 
     Examples:
       | question                   |
@@ -70,3 +69,30 @@ Feature: Gmail astrology digest
     Given Gmail returns no emails for the requested date
     When I call the astrology email tool with date "2024-01-01"
     Then the tool result should indicate no email was found for that date
+
+  @e2e
+  Scenario: Today's astrology query returns an email from the expected date range
+    Given a running agent
+    When I ask "今日星座运势"
+    Then the response should contain astrology content
+    And the response should be in Chinese
+    And the response date should be within two days of today
+
+  @unit
+  Scenario: Tool queries the PT-equivalent date without additional offset
+    Given today is "2026-03-12" in Beijing and expected newsletter date is "2026-03-11"
+    When I call the astrology email tool without date
+    Then the search query should target date "2026-03-11"
+
+  @unit
+  Scenario: Tool extracts Beijing date from email metadata with UTC header
+    Given an email metadata Date header "Tue, 10 Mar 2026 14:03:00 +0000"
+    When the tool extracts the date from metadata
+    Then the extracted date should be "2026-03-10"
+
+  @unit
+  Scenario: Tool discloses stale email when expected date has no matching email
+    Given today is "2026-03-12" in Beijing and expected newsletter date is "2026-03-11"
+    And the primary search returns no results but a stale email dated "2026-03-10" exists
+    When I call the astrology email tool without date
+    Then the tool result should warn about stale email dated "2026-03-10"

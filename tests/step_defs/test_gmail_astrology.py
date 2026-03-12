@@ -156,6 +156,12 @@ def given_no_emails_for_date(tool_context):
     _ = tool_context
 
 
+@given(parsers.parse('today is "{today_date}" in Beijing and expected newsletter date is "{expected_date}"'))
+def given_today_and_expected_date(tool_context, today_date, expected_date):
+    tool_context["today"] = today_date
+    tool_context["expected_newsletter_date"] = expected_date
+
+
 @when(parsers.parse('I call the astrology email tool with date "{date}"'))
 def when_call_tool_with_date(tool_context, date):
     mock_api = MagicMock()
@@ -175,6 +181,120 @@ def when_call_tool_with_date(tool_context, date):
         tool_context["result"] = get_astrology_email.func(date=date)
 
 
+@when("I call the astrology email tool without date")
+def when_call_tool_without_date(tool_context):
+    mock_api = MagicMock()
+    mock_search = MagicMock()
+    mock_search.name = "search_gmail"
+    captured_queries = []
+
+    today = tool_context.get("today", "2026-03-12")
+    expected = tool_context.get("expected_newsletter_date", "2026-03-11")
+    stale_date = tool_context.get("stale_email_date")
+
+    def _capture_search(payload):
+        query = payload.get("query", "")
+        captured_queries.append(query)
+        if stale_date:
+            from datetime import datetime as _dt
+            exp_fmt = _dt.strptime(expected, "%Y-%m-%d").strftime("%Y/%m/%d")
+            if f"after:{exp_fmt}" in query:
+                return []
+        return [{"id": "msg-1"}]
+
+    mock_search.invoke.side_effect = _capture_search
+    mock_toolkit = MagicMock()
+    mock_toolkit.get_tools.return_value = [mock_search]
+
+    with (
+        patch("agent_diy.tools.gmail_astrology.Path.exists", return_value=True),
+        patch("langchain_google_community.gmail.utils.build_resource_service", return_value=mock_api),
+        patch("langchain_google_community.GmailToolkit", return_value=mock_toolkit),
+        patch(
+            "agent_diy.tools.gmail_astrology._tool_by_name",
+            side_effect=lambda _tools, name: mock_search if name == "search_gmail" else MagicMock(),
+        ),
+        patch(
+            "agent_diy.tools.gmail_astrology._today_and_expected_newsletter_date",
+            return_value=(today, expected),
+        ),
+        patch("agent_diy.tools.gmail_astrology._get_body_from_api", return_value=SAMPLE_EMAIL_BODY),
+        patch(
+            "agent_diy.tools.gmail_astrology._extract_date_from_metadata",
+            return_value=stale_date if stale_date else expected,
+        ),
+    ):
+        from agent_diy.tools.gmail_astrology import get_astrology_email
+
+        tool_context["result"] = get_astrology_email.func()
+        tool_context["search_queries"] = captured_queries
+
+
 @then("the tool result should indicate no email was found for that date")
 def then_result_not_found(tool_context):
     assert re.search(r"未找到", tool_context["result"])
+
+
+@then(parsers.parse('the search query should target date "{expected_date}"'))
+def then_search_query_targets_date(tool_context, expected_date):
+    from datetime import datetime, timedelta
+
+    dt = datetime.strptime(expected_date, "%Y-%m-%d")
+    date_fmt = dt.strftime("%Y/%m/%d")
+    next_day = (dt + timedelta(days=1)).strftime("%Y/%m/%d")
+    expected_pattern = f"after:{date_fmt} before:{next_day}"
+    queries = tool_context.get("search_queries", [])
+    assert any(expected_pattern in q for q in queries), (
+        f"Expected query containing '{expected_pattern}', got: {queries}"
+    )
+
+
+@then("the response date should be within two days of today")
+def then_response_date_within_two_days(astrology_context):
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+
+    response = astrology_context["response"]
+    today_bj = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    match = re.search(r"(\d{4})[年\-/](\d{1,2})[月\-/](\d{1,2})", response)
+    assert match, f"No date found in response: {response[:200]}"
+    found_date = date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    diff = abs((today_bj - found_date).days)
+    assert diff <= 2, f"Date {found_date} is {diff} days from today {today_bj}, expected ≤ 2"
+
+
+@given(parsers.parse('an email metadata Date header "{header_value}"'))
+def given_email_metadata_header(tool_context, header_value):
+    tool_context["date_header"] = header_value
+
+
+@when("the tool extracts the date from metadata")
+def when_tool_extracts_date_from_metadata(tool_context):
+    mock_api = MagicMock()
+    mock_api.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+        "payload": {
+            "headers": [{"name": "Date", "value": tool_context["date_header"]}]
+        }
+    }
+    from agent_diy.tools.gmail_astrology import _extract_date_from_metadata
+    tool_context["extracted_date"] = _extract_date_from_metadata(mock_api, "msg-1")
+
+
+@then(parsers.parse('the extracted date should be "{expected_date}"'))
+def then_extracted_date_should_be(tool_context, expected_date):
+    assert tool_context["extracted_date"] == expected_date, (
+        f"Expected {expected_date}, got {tool_context['extracted_date']}"
+    )
+
+
+@given(parsers.parse('the primary search returns no results but a stale email dated "{stale_date}" exists'))
+def given_stale_email_exists(tool_context, stale_date):
+    tool_context["stale_email_date"] = stale_date
+
+
+@then(parsers.parse('the tool result should warn about stale email dated "{stale_date}"'))
+def then_result_warns_stale_email(tool_context, stale_date):
+    result = tool_context["result"]
+    assert "提示" in result, f"Expected warning in result: {result[:200]}"
+    assert tool_context["expected_newsletter_date"] in result
+    assert stale_date in result
