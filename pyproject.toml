@@ -9,12 +9,15 @@ description = "Composable LangGraph-based agent framework"
 requires-python = ">=3.12"
 dependencies = [
   "alibabacloud_iqs20241111>=1.7.2",
+  "fastmcp",
   "langchain>=0.3.0",
   "langchain-core>=0.3.0",
+  "langchain-mcp-adapters",
   "langgraph>=0.4.0",
   "langchain-anthropic>=0.2.0",
   "langgraph-cli[inmem]>=0.4.14",
   "requests>=2.32.0",
+  "httpx",
   "langchain-google-community[gmail]>=3.0.5",
 ]
 
