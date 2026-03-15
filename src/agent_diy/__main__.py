@@ -23,6 +23,40 @@ def _load_dotenv():
         os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
 
 
+def _stream_response(agent, messages_input: dict, config: dict) -> str:
+    """Stream agent response to stdout. Returns full response text."""
+    tool_call_announced: set[str] = set()
+    full_text = ""
+
+    for chunk in agent.stream(
+        messages_input,
+        config=config,
+        stream_mode="messages",
+        version="v2",
+    ):
+        if isinstance(chunk, tuple) and len(chunk) == 2:
+            msg, metadata = chunk
+        elif isinstance(chunk, dict) and chunk.get("type") == "messages":
+            msg, metadata = chunk["data"]
+        else:
+            continue
+        node = metadata.get("langgraph_node", "")
+
+        if node == "llm_call":
+            if hasattr(msg, "tool_call_chunks") and msg.tool_call_chunks:
+                for tc in msg.tool_call_chunks:
+                    name = tc.get("name")
+                    if name and name not in tool_call_announced:
+                        tool_call_announced.add(name)
+                        print(f"\n[工具调用: {name}]", flush=True)
+            elif msg.content:
+                print(msg.content, end="", flush=True)
+                full_text += msg.content
+
+    print()
+    return full_text
+
+
 def main():
     _load_dotenv()
     api_key = os.getenv("DASHSCOPE_API_KEY")
@@ -50,12 +84,8 @@ def main():
             print("Bye!")
             break
 
-        result = agent.invoke(
-            {"messages": [HumanMessage(content=user_input)]},
-            config=config,
-        )
-        content = result["messages"][-1].content
-        print(f"Agent: {content}\n")
+        print("Agent: ", end="", flush=True)
+        _stream_response(agent, {"messages": [HumanMessage(content=user_input)]}, config)
 
 
 if __name__ == "__main__":
