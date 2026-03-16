@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
+import threading
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -22,7 +25,10 @@ from agent_diy.tools import (
 )
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
-SYSTEM_PROMPT = (
+_FINANCIAL_NEWS_TOOLS: list[Any] | None = None
+_FINANCIAL_NEWS_LOAD_ERROR: str | None = None
+
+BASE_SYSTEM_PROMPT = (
     "你是一个有用的助手。"
     "当用户询问天气且未明确城市时，默认使用北京作为城市参数调用天气工具。"
     "当用户询问今晚、明天、后天或未来天气时，优先调用天气预报工具。"
@@ -50,6 +56,77 @@ SYSTEM_PROMPT = (
     "若已过去，则该事件已经发生，应据此作答，不得以'尚未发布'等措辞回复。"
 )
 
+FINANCIAL_NEWS_PROMPT = (
+    "当用户询问A股个股新闻、股票行情、市场热点时，调用金融新闻工具。"
+    "当用户询问具体股票时，同时调用 stock_news 和 semantic_search 以获取更全面的信息。"
+    "金融新闻工具不可用时，说明暂时无法获取最新市场数据，不要给出估算。"
+    "通识性金融问题（如‘股票是什么’）不触发金融新闻工具。"
+    "对于A股个股新闻、股票行情、市场热点，优先金融新闻工具，不调用网络搜索工具，除非用户明确要求‘搜/查/检索’。"
+)
+
+FINANCIAL_NEWS_UNAVAILABLE_PROMPT = (
+    "当前金融新闻工具不可用。用户询问A股个股新闻、股票行情、市场热点时，"
+    "直接说明暂时无法获取最新市场数据，不要调用不存在的金融新闻工具。"
+)
+
+
+def _load_financial_news_tools() -> list[Any]:
+    """Load MCP financial-news tools with graceful fallback."""
+    global _FINANCIAL_NEWS_TOOLS, _FINANCIAL_NEWS_LOAD_ERROR
+
+    if _FINANCIAL_NEWS_TOOLS is not None:
+        return _FINANCIAL_NEWS_TOOLS
+
+    try:
+        from agent_diy.mcp.client import get_financial_news_tools
+    except Exception:  # noqa: BLE001 - keep agent available when MCP deps are absent
+        _FINANCIAL_NEWS_TOOLS = []
+        return _FINANCIAL_NEWS_TOOLS
+
+    async def _load_async() -> list[Any]:
+        return await get_financial_news_tools()
+
+    def _load_once() -> list[Any]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_load_async())
+
+        loaded_tools: list[Any] = []
+        load_error: Exception | None = None
+
+        def _runner() -> None:
+            nonlocal loaded_tools, load_error
+            try:
+                loaded_tools = asyncio.run(_load_async())
+            except Exception as exc:  # noqa: BLE001 - MCP service may be unavailable
+                load_error = exc
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        thread.join()
+        if load_error is not None:
+            raise load_error
+        return loaded_tools
+
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            _FINANCIAL_NEWS_TOOLS = _load_once()
+            _FINANCIAL_NEWS_LOAD_ERROR = None
+            return _FINANCIAL_NEWS_TOOLS
+        except Exception as exc:  # noqa: BLE001 - keep agent available
+            _FINANCIAL_NEWS_LOAD_ERROR = f"{type(exc).__name__}: {exc}"
+            if attempt < attempts:
+                time.sleep(0.2)
+
+    if os.getenv("FINANCIAL_NEWS_REQUIRED") == "1":
+        raise RuntimeError(
+            f"Failed to load financial news MCP tools: {_FINANCIAL_NEWS_LOAD_ERROR}"
+        )
+
+    return []
+
 
 def _default_model() -> ChatOpenAI:
     """Build the default model from env vars (DashScope/Qwen)."""
@@ -67,18 +144,23 @@ def _build_graph(model: Any = None):
     """Build the StateGraph (uncompiled)."""
     if model is None:
         model = _default_model()
+    financial_tools = _load_financial_news_tools()
     tools = [
         get_current_weather,
         get_weather_forecast,
         get_sunrise_sunset,
         web_search,
         get_astrology_email,
+        *financial_tools,
     ]
     model_with_tools = model.bind_tools(tools)
+    system_prompt = BASE_SYSTEM_PROMPT + (
+        FINANCIAL_NEWS_PROMPT if financial_tools else FINANCIAL_NEWS_UNAVAILABLE_PROMPT
+    )
 
     def llm_call(state: MessagesState):
         now = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y年%m月%d日 %H:%M")
-        system = SystemMessage(content=SYSTEM_PROMPT + f"\n当前北京时间：{now}")
+        system = SystemMessage(content=system_prompt + f"\n当前北京时间：{now}")
         response = model_with_tools.invoke(
             [system] + state["messages"]
         )
