@@ -128,14 +128,14 @@ def given_financial_news_tool_with_unavailable_backend(financial_news_context, f
     financial_news_context["tool"] = financial_news_tool
 
 
-@when(parsers.re(r'I query stock news for ticker "(?P<ticker>[^"]*)"'))
-def when_i_query_stock_news_for_ticker(financial_news_context, ticker):
+@when(parsers.re(r'I query stock news for symbol "(?P<symbol>[^"]*)"'))
+def when_i_query_stock_news_for_symbol(financial_news_context, symbol):
     payload = [
         {"title": "贵州茅台发布年报", "publish_time": "2026-03-10 09:00:00"},
         {"title": "白酒板块早盘走强", "publish_time": "2026-03-10 10:00:00"},
     ]
     with patch("agent_diy.mcp.financial_news_server.httpx.Client.get", return_value=_mock_response(payload)) as mock_get:
-        financial_news_context["unit_result"] = financial_news_context["tool"]["stock_news"](ticker)
+        financial_news_context["unit_result"] = financial_news_context["tool"]["stock_news"](symbol)
         financial_news_context["calls"] = mock_get.call_args_list
 
 
@@ -371,7 +371,7 @@ def when_stock_news_backend_returns_wrapped_results_payload(financial_news_conte
         ],
     }
     with patch("agent_diy.mcp.financial_news_server.httpx.Client.get", return_value=_mock_response(payload)):
-        financial_news_context["unit_result"] = financial_news_context["tool"]["stock_news"](ticker="603516")
+        financial_news_context["unit_result"] = financial_news_context["tool"]["stock_news"](symbol="603516")
 
 
 @then("the parsed result should contain a list of news items")
@@ -405,7 +405,7 @@ def when_i_query_stock_news_and_capture_client_options(financial_news_context, t
     mock_client.get.return_value = _mock_response(payload)
 
     with patch("agent_diy.mcp.financial_news_server.httpx.Client", return_value=mock_client) as mock_client_cls:
-        financial_news_context["unit_result"] = financial_news_context["tool"]["stock_news"](ticker=ticker)
+        financial_news_context["unit_result"] = financial_news_context["tool"]["stock_news"](symbol=ticker)
         financial_news_context["client_kwargs"] = mock_client_cls.call_args.kwargs
 
 

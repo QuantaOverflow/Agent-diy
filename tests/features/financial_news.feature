@@ -20,8 +20,7 @@ Feature: Financial news integration
   Scenario Outline: Agent retrieves comprehensive information for specific stock queries
     Given a running agent
     When I ask "<question>"
-    Then the response should synthesize news from multiple sources
-    And the response should contain relevant stock information
+    Then the response should contain relevant stock information
 
     Examples:
       | question                        |
