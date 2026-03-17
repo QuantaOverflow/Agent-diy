@@ -42,14 +42,6 @@ def tool_context():
     return {"body": "", "result": "", "sections": ()}
 
 
-@given("Gmail credentials are configured")
-def given_gmail_credentials_configured():
-    creds = Path("credentials.json")
-    token = Path("token.json")
-    if not creds.exists() and not token.exists():
-        pytest.skip("Gmail credentials not configured")
-
-
 @given("a running agent")
 def given_running_agent(astrology_context):
     dashscope_api_key = os.getenv("DASHSCOPE_API_KEY")

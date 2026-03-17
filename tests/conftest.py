@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from pytest_bdd import given
 
 from agent_diy.core import agent as agent_module
 
@@ -68,3 +70,11 @@ def patch_init_chat_model(monkeypatch):
         return FakeModel()
 
     monkeypatch.setattr(agent_module, "init_chat_model", _init_chat_model)
+
+
+@given("Gmail credentials are configured")
+def given_gmail_credentials_configured():
+    creds = Path("credentials.json")
+    token = Path("token.json")
+    if not creds.exists() and not token.exists():
+        pytest.skip("Gmail credentials not configured")

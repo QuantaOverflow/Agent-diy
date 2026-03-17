@@ -19,6 +19,7 @@ dependencies = [
   "requests>=2.32.0",
   "httpx",
   "langchain-google-community[gmail]>=3.0.5",
+  "python-telegram-bot>=22.7",
 ]
 
 [dependency-groups]
