@@ -4,62 +4,54 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
-from langchain_core.messages import HumanMessage
 from telegram import Update
 from telegram.error import NetworkError, TimedOut
 from telegram.request import HTTPXRequest
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-from agent_diy.core.agent import create_agent
+from agent_diy.agent_backend import AgentBackend, InProcessAgentBackend, RemoteHttpAgentBackend
 
 logger = logging.getLogger(__name__)
 
 
-def _content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text")
-                if text:
-                    parts.append(str(text))
-        if parts:
-            return "\n".join(parts)
-    return str(content)
-
-
 class TelegramBot:
-    def __init__(self, token: str, agent: Any | None = None):
+    def __init__(self, token: str, backend: AgentBackend | None = None):
         if not token:
             raise ValueError("TELEGRAM_BOT_TOKEN 未配置")
         self._token = token
-        self._agent = agent
+        self._backend = backend or self._default_backend()
         self._start_time = datetime.now(timezone.utc)
 
-    def _get_agent(self) -> Any:
-        if self._agent is None:
-            self._agent = create_agent()
-        return self._agent
+    @staticmethod
+    def _default_backend() -> AgentBackend:
+        remote_url = os.getenv("AGENT_REMOTE_URL", "").strip()
+        if remote_url:
+            return RemoteHttpAgentBackend(
+                remote_url=remote_url,
+                bridge_token=os.getenv("AGENT_BRIDGE_TOKEN", ""),
+                timeout=55.0,
+            )
+        return InProcessAgentBackend()
+
+    @property
+    def _agent(self) -> Any:  # compatibility for existing tests
+        if isinstance(self._backend, InProcessAgentBackend):
+            return self._backend._agent
+        return None
+
+    @_agent.setter
+    def _agent(self, value: Any) -> None:  # compatibility for existing tests
+        if isinstance(self._backend, InProcessAgentBackend):
+            self._backend._agent = value
+        else:
+            self._backend = InProcessAgentBackend(agent=value)
 
     async def handle_message(self, user_id: int, text: str) -> str:
-        try:
-            result = self._get_agent().invoke(
-                {"messages": [HumanMessage(content=text)]},
-                config={"configurable": {"thread_id": str(user_id)}},
-            )
-            messages = result.get("messages", [])
-            if not messages:
-                return "出错：未获取到回复。"
-            return _content_to_text(getattr(messages[-1], "content", messages[-1]))
-        except Exception:  # noqa: BLE001
-            return "出错：处理消息时发生异常，请稍后重试。"
+        return await self._backend.reply(user_id=user_id, text=text)
 
     async def _on_text_message(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_user is None or update.message is None:
