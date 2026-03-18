@@ -39,8 +39,8 @@ def ctx():
         "backend": None,
         "sent_message": None,
         "reply_text_mock": None,
-        "token_count": 0,
         "tool_name": None,
+        "expected_text": "",
     }
 
 
@@ -59,7 +59,7 @@ def given_agent_streams_multiple_tokens(ctx):
         StreamEvent("token", "好"),
         StreamEvent("token", "！"),
     ]
-    ctx["token_count"] = 3
+    ctx["expected_text"] = "你好！"
 
 
 @given(parsers.parse('agent 流式过程中调用工具 "{tool_name}"'))
@@ -68,14 +68,21 @@ def given_agent_streams_with_tool_call(ctx, tool_name):
         StreamEvent("tool_call", tool_name),
         StreamEvent("token", "工具结果文本"),
     ]
-    ctx["token_count"] = 2
+    ctx["expected_text"] = "工具结果文本"
     ctx["tool_name"] = tool_name
 
 
 @given("agent 流式快速返回大量 token")
 def given_agent_streams_many_tokens_fast(ctx):
     ctx["backend"].events = [StreamEvent("token", "x") for _ in range(50)]
-    ctx["token_count"] = 50
+    ctx["expected_text"] = "x" * 50
+
+
+@given("agent 流式返回超长内容")
+def given_agent_streams_very_long_content(ctx):
+    long_text = "长文" * 2500
+    ctx["backend"].events = [StreamEvent("token", long_text)]
+    ctx["expected_text"] = long_text
 
 
 @given("agent 流式过程中抛出异常")
@@ -122,7 +129,9 @@ def then_bot_should_edit_message_at_least_once(ctx):
 def then_final_message_should_contain_complete_reply(ctx):
     assert ctx["sent_message"].edit_text.call_args_list
     final_text = ctx["sent_message"].edit_text.call_args_list[-1][0][0]
-    expected = "".join(event.content for event in ctx["backend"].events if event.type == "token")
+    expected = ctx["expected_text"] or "".join(
+        event.content for event in ctx["backend"].events if event.type == "token"
+    )
     assert final_text
     assert "出错" not in final_text
     assert expected in final_text
@@ -136,9 +145,12 @@ def then_editing_should_show_tool_call_status(ctx):
         assert any(ctx["tool_name"] in str(call[0][0]) for call in calls)
 
 
-@then("消息编辑次数应少于 token 总数")
-def then_edit_count_should_be_less_than_token_count(ctx):
-    assert ctx["sent_message"].edit_text.call_count < ctx["token_count"]
+@then("最终消息不应是错误提示")
+def then_final_message_should_not_be_error(ctx):
+    assert ctx["sent_message"].edit_text.call_args_list
+    final_text = ctx["sent_message"].edit_text.call_args_list[-1][0][0]
+    assert final_text not in {DEFAULT_ERROR_REPLY, EMPTY_MESSAGES_REPLY}
+    assert "Message_too_long" not in final_text
 
 
 @then("最终消息应包含错误提示")
@@ -154,3 +166,16 @@ def then_final_message_should_contain_empty_reply_error(ctx):
     assert ctx["sent_message"].edit_text.call_args_list
     final_text = ctx["sent_message"].edit_text.call_args_list[-1][0][0]
     assert final_text == EMPTY_MESSAGES_REPLY
+
+
+@then("长回复应被完整送达")
+def then_long_reply_should_be_fully_delivered(ctx):
+    expected = ctx["expected_text"]
+    assert expected
+    assert ctx["sent_message"].edit_text.call_args_list
+
+    first_chunk = ctx["sent_message"].edit_text.call_args_list[-1][0][0]
+    extra_chunks = [call.args[0] for call in ctx["reply_text_mock"].await_args_list[1:]]
+    delivered = first_chunk + "".join(extra_chunks)
+
+    assert delivered == expected

@@ -23,6 +23,7 @@ from agent_diy.agent_backend import (
 )
 
 logger = logging.getLogger(__name__)
+TELEGRAM_MAX_MESSAGE_CHARS = 4096
 
 
 class TelegramBot:
@@ -32,6 +33,36 @@ class TelegramBot:
         self._token = token
         self._backend = backend or self._default_backend()
         self._start_time = datetime.now(timezone.utc)
+        # Telegram edits are rate-limited; keep updates frequent but bounded.
+        self._stream_edit_interval_sec = max(
+            0.1,
+            float(os.getenv("TELEGRAM_STREAM_EDIT_INTERVAL_SEC", "0.35")),
+        )
+        self._log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+
+    def _configure_logging(self) -> None:
+        level = getattr(logging, self._log_level_name, logging.INFO)
+        root = logging.getLogger()
+        if not root.handlers:
+            logging.basicConfig(
+                level=level,
+                format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+            )
+        root.setLevel(level)
+
+    @staticmethod
+    def _split_text(text: str, max_chars: int = TELEGRAM_MAX_MESSAGE_CHARS) -> list[str]:
+        if not text:
+            return [""]
+        return [text[i : i + max_chars] for i in range(0, len(text), max_chars)]
+
+    @staticmethod
+    def _preview_text_for_stream(text: str) -> str:
+        if len(text) <= TELEGRAM_MAX_MESSAGE_CHARS:
+            return text
+        prefix = "[内容较长，显示末尾部分]\n"
+        keep = TELEGRAM_MAX_MESSAGE_CHARS - len(prefix)
+        return prefix + text[-keep:]
 
     @staticmethod
     def _default_backend() -> AgentBackend:
@@ -67,6 +98,7 @@ class TelegramBot:
             return
         text = update.message.text or ""
         user_id = update.effective_user.id
+        logger.info("Telegram message received: user_id=%s, text_len=%s", user_id, len(text))
 
         stream_reply = getattr(self._backend, "stream_reply", None)
         backend_agent = self._agent
@@ -100,18 +132,28 @@ class TelegramBot:
                     buffer += event.content
 
                 now = time.monotonic()
-                if now - last_edit_time >= 1.0 and buffer != last_sent_text:
+                preview = self._preview_text_for_stream(buffer)
+                if now - last_edit_time >= self._stream_edit_interval_sec and preview != last_sent_text:
                     try:
-                        await sent.edit_text(buffer)
-                        last_sent_text = buffer
+                        await sent.edit_text(preview)
+                        last_sent_text = preview
                         last_edit_time = now
                     except (BadRequest, NetworkError, TimedOut):
                         pass
 
-            if buffer and buffer != last_sent_text:
-                await sent.edit_text(buffer)
+            if buffer:
+                chunks = self._split_text(buffer)
+                if len(chunks) == 1:
+                    final_text = chunks[0]
+                    if final_text != last_sent_text:
+                        await sent.edit_text(final_text)
+                else:
+                    await sent.edit_text(chunks[0])
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk)
             elif not buffer:
                 await sent.edit_text(EMPTY_MESSAGES_REPLY)
+            logger.info("Telegram message handled: user_id=%s, output_len=%s", user_id, len(buffer))
         except Exception:  # noqa: BLE001
             logger.warning("Streaming failed, showing error", exc_info=True)
             try:
@@ -136,6 +178,7 @@ class TelegramBot:
         return application
 
     def run(self) -> None:
+        self._configure_logging()
         self._start_time = datetime.now(timezone.utc)
         application = self._build_application()
         application.run_polling(drop_pending_updates=True, bootstrap_retries=-1)
@@ -151,6 +194,7 @@ class TelegramBot:
     ) -> None:
         if not webhook_url:
             raise ValueError("webhook_url 未配置")
+        self._configure_logging()
         self._start_time = datetime.now(timezone.utc)
         application = self._build_application()
         application.run_webhook(

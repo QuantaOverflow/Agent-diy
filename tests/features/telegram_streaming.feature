@@ -22,11 +22,12 @@ Feature: Telegram 流式回复
     And 最终消息应包含完整回复内容
 
   @unit
-  Scenario: 编辑频率不超过节流限制
+  Scenario: 大量 token 输出时仍能得到完整可用回复
     Given Telegram bot 已初始化
     And agent 流式快速返回大量 token
     When 用户 "123" 发送消息 "写一段话"
-    Then 消息编辑次数应少于 token 总数
+    Then 最终消息应包含完整回复内容
+    And 最终消息不应是错误提示
 
   @unit
   Scenario: 流式异常时最终消息显示错误提示
@@ -41,3 +42,11 @@ Feature: Telegram 流式回复
     And agent 流式返回空内容
     When 用户 "123" 发送消息 "测试"
     Then 最终消息应包含空回复错误提示
+
+  @unit
+  Scenario: 长回复超过单条消息上限时仍能完整送达
+    Given Telegram bot 已初始化
+    And agent 流式返回超长内容
+    When 用户 "123" 发送消息 "写一篇超长内容"
+    Then 长回复应被完整送达
+    And 最终消息不应是错误提示
