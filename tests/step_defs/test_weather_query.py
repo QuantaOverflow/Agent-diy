@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 import requests
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from agent_diy.core.agent import create_agent
@@ -27,12 +26,9 @@ def weather_context():
 
 
 @given("a running agent")
-def given_running_agent(weather_context):
-    dashscope_api_key = os.getenv("DASHSCOPE_API_KEY")
+def given_running_agent(weather_context, qwen_model):
     qweather_api_key = os.getenv("QWEATHER_API_KEY")
     qweather_api_host = os.getenv("QWEATHER_API_HOST")
-    if not dashscope_api_key:
-        pytest.skip("DASHSCOPE_API_KEY not set")
     if not qweather_api_key:
         pytest.skip("QWEATHER_API_KEY not set")
     if not qweather_api_host:
@@ -52,12 +48,7 @@ def given_running_agent(weather_context):
     except requests.RequestException as exc:
         pytest.skip(f"QWeather unavailable: {exc}")
 
-    model = ChatOpenAI(
-        api_key=dashscope_api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-    )
-    weather_context["agent"] = create_agent(model=model)
+    weather_context["agent"] = create_agent(model=qwen_model)
 
 
 @when(parsers.parse('I ask "{text}"'))

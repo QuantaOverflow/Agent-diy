@@ -9,26 +9,10 @@ import httpx
 from langchain_core.messages import HumanMessage
 
 from agent_diy.core.agent import create_agent
+from agent_diy.utils import content_to_text
 
 DEFAULT_ERROR_REPLY = "出错：处理消息时发生异常，请稍后重试。"
 EMPTY_MESSAGES_REPLY = "出错：未获取到回复。"
-
-
-def _content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text")
-                if text:
-                    parts.append(str(text))
-        if parts:
-            return "\n".join(parts)
-    return str(content)
 
 
 class AgentBackend(Protocol):
@@ -55,7 +39,7 @@ class InProcessAgentBackend:
             messages = result.get("messages", [])
             if not messages:
                 return EMPTY_MESSAGES_REPLY
-            return _content_to_text(getattr(messages[-1], "content", messages[-1]))
+            return content_to_text(getattr(messages[-1], "content", messages[-1]))
         except Exception:  # noqa: BLE001
             return DEFAULT_ERROR_REPLY
 

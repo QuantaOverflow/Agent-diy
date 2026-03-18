@@ -8,9 +8,23 @@ from pathlib import Path
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from pytest_bdd import given
+from pytest_bdd import given, then
 
 from agent_diy.core import agent as agent_module
+from agent_diy.utils import content_to_text
+
+
+def _reset_financial_news_runtime_cache() -> None:
+    from agent_diy.mcp import client as mcp_client
+
+    agent_module._FINANCIAL_NEWS_TOOLS = None
+    agent_module._FINANCIAL_NEWS_LOAD_ERROR = None
+    mcp_client._invalidate_cached_client()
+
+
+@pytest.fixture
+def reset_financial_news_runtime_cache():
+    return _reset_financial_news_runtime_cache
 
 
 def pytest_collection_modifyitems(config, items):
@@ -70,6 +84,33 @@ def patch_init_chat_model(monkeypatch):
         return FakeModel()
 
     monkeypatch.setattr(agent_module, "init_chat_model", _init_chat_model)
+
+
+@pytest.fixture
+def qwen_model():
+    from agent_diy.core.model import create_dashscope_model
+
+    if not os.getenv("DASHSCOPE_API_KEY"):
+        pytest.skip("DASHSCOPE_API_KEY not set")
+    return create_dashscope_model()
+
+
+@then("the response should not be an error message")
+def then_response_should_not_be_an_error_message(request):
+    context = None
+    matched_fixture_name = None
+    for fixture_name in ("financial_news_context", "web_search_context"):
+        if fixture_name in request.fixturenames:
+            context = request.getfixturevalue(fixture_name)
+            matched_fixture_name = fixture_name
+            break
+
+    assert context is not None, "Missing known context fixture for response assertion"
+    final_message = context["result"]["messages"][-1]
+    text = content_to_text(final_message.content).strip()
+    assert text
+    if matched_fixture_name == "web_search_context":
+        assert not text.startswith("网络搜索暂不可用")
 
 
 @given("Gmail credentials are configured")

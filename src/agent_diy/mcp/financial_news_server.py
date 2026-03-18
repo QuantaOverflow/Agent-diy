@@ -29,19 +29,30 @@ def _as_list(payload: Any) -> list[dict]:
     return []
 
 
-@mcp.tool
-def lookup(query: str) -> list[dict]:
-    """Lookup ticker/company matches by query."""
+def _get(path: str, params: dict | None = None) -> list[dict]:
     try:
         with httpx.Client(timeout=10.0, trust_env=False) as client:
-            response = client.get(
-                f"{_base_url()}/api/v1/stock/lookup",
-                params={"query": query},
-            )
+            response = client.get(f"{_base_url()}{path}", params=params)
             response.raise_for_status()
             return _as_list(response.json())
     except Exception:  # noqa: BLE001 - tool should degrade gracefully
         return []
+
+
+def _post(path: str, body: dict) -> list[dict]:
+    try:
+        with httpx.Client(timeout=10.0, trust_env=False) as client:
+            response = client.post(f"{_base_url()}{path}", json=body)
+            response.raise_for_status()
+            return _as_list(response.json())
+    except Exception:  # noqa: BLE001 - tool should degrade gracefully
+        return []
+
+
+@mcp.tool
+def lookup(query: str) -> list[dict]:
+    """Lookup ticker/company matches by query."""
+    return _get("/api/v1/stock/lookup", {"query": query})
 
 
 @mcp.tool
@@ -50,43 +61,19 @@ def stock_news(symbol: str, limit: int = 15) -> list[dict]:
     resolved = symbol.strip().split(".")[0]  # strip exchange suffix if present
     if not resolved.isdigit():
         return []
-    try:
-        with httpx.Client(timeout=10.0, trust_env=False) as client:
-            response = client.get(
-                f"{_base_url()}/api/v1/stock/news",
-                params={"ticker": resolved, "limit": limit},
-            )
-            response.raise_for_status()
-            return _as_list(response.json())
-    except Exception:  # noqa: BLE001 - tool should degrade gracefully
-        return []
+    return _get("/api/v1/stock/news", {"ticker": resolved, "limit": limit})
 
 
 @mcp.tool
 def semantic_search(query: str, limit: int = 15) -> list[dict]:
     """Run semantic vector search on financial news."""
-    try:
-        with httpx.Client(timeout=10.0, trust_env=False) as client:
-            response = client.post(
-                f"{_base_url()}/api/v1/search",
-                json={"query": query, "top_k": limit},
-            )
-            response.raise_for_status()
-            return _as_list(response.json())
-    except Exception:  # noqa: BLE001 - tool should degrade gracefully
-        return []
+    return _post("/api/v1/search", {"query": query, "top_k": limit})
 
 
 @mcp.tool
 def hot_news() -> list[dict]:
     """Fetch latest market hot news."""
-    try:
-        with httpx.Client(timeout=10.0, trust_env=False) as client:
-            response = client.get(f"{_base_url()}/api/v1/market/hot_news")
-            response.raise_for_status()
-            return _as_list(response.json())
-    except Exception:  # noqa: BLE001 - tool should degrade gracefully
-        return []
+    return _get("/api/v1/market/hot_news")
 
 
 if __name__ == "__main__":

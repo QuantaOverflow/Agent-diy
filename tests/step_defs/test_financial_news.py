@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from langchain_openai import ChatOpenAI
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from agent_diy.core.agent import create_agent
 from agent_diy.mcp import financial_news_server
+from agent_diy.utils import content_to_text
 
 scenarios(str(Path(__file__).resolve().parents[1] / "features" / "financial_news.feature"))
 
@@ -51,18 +52,6 @@ def _mock_response(payload):
     return response
 
 
-def _extract_text(content) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return " ".join(
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict)
-        )
-    return str(content)
-
-
 def _tool_name(message) -> str:
     raw_name = getattr(message, "name", "") or ""
     if raw_name in FINANCIAL_TOOL_NAMES:
@@ -71,6 +60,13 @@ def _tool_name(message) -> str:
         if raw_name.endswith(name):
             return name
     return raw_name
+
+
+def _tool_payload(message):
+    try:
+        return json.loads(content_to_text(message.content))
+    except json.JSONDecodeError:
+        return None
 
 
 def _require_e2e_env():
@@ -86,28 +82,19 @@ def _require_e2e_env():
 
 
 @given("a running agent")
-def given_running_agent(financial_news_context):
+def given_running_agent(financial_news_context, qwen_model):
     _require_e2e_env()
-    model = ChatOpenAI(
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-    )
-    financial_news_context["agent"] = create_agent(model=model)
+    financial_news_context["agent"] = create_agent(model=qwen_model)
 
 
 @given("a running agent with unavailable financial news service")
-def given_running_agent_with_unavailable_financial_news_service(financial_news_context, monkeypatch):
-    if not os.getenv("DASHSCOPE_API_KEY"):
-        pytest.skip("DASHSCOPE_API_KEY not set")
+def given_running_agent_with_unavailable_financial_news_service(
+    financial_news_context, monkeypatch, qwen_model, reset_financial_news_runtime_cache
+):
+    monkeypatch.setenv("FINANCIAL_NEWS_BASE_URL", "http://127.0.0.1:1")
 
-    monkeypatch.setenv("FINANCIAL_NEWS_BASE_URL", "http://127.0.0.1:9")
-    model = ChatOpenAI(
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-    )
-    financial_news_context["agent"] = create_agent(model=model)
+    reset_financial_news_runtime_cache()
+    financial_news_context["agent"] = create_agent(model=qwen_model)
 
 
 @when(parsers.parse('I ask "{text}"'))
@@ -310,7 +297,7 @@ def then_response_synthesizes_news_from_multiple_sources(financial_news_context)
     assert "semantic_search" in tool_names
 
     final_message = result["messages"][-1]
-    text = _extract_text(final_message.content).strip()
+    text = content_to_text(final_message.content).strip()
     assert text
     assert len(text) > 20
 
@@ -318,7 +305,7 @@ def then_response_synthesizes_news_from_multiple_sources(financial_news_context)
 @then("the response should contain relevant market information")
 def then_response_contains_relevant_market_information(financial_news_context):
     final_message = financial_news_context["result"]["messages"][-1]
-    text = _extract_text(final_message.content).strip()
+    text = content_to_text(final_message.content).strip()
     assert text
     assert len(text) > 20
 
@@ -326,22 +313,20 @@ def then_response_contains_relevant_market_information(financial_news_context):
 @then("the response should contain relevant stock information")
 def then_response_contains_relevant_stock_information(financial_news_context):
     final_message = financial_news_context["result"]["messages"][-1]
-    text = _extract_text(final_message.content).strip()
+    text = content_to_text(final_message.content).strip()
     assert text
     assert len(text) > 20
 
 
 @then("the response should indicate limited information availability")
 def then_response_indicates_limited_information_availability(financial_news_context):
-    final_message = financial_news_context["result"]["messages"][-1]
-    text = _extract_text(final_message.content).strip()
-    assert any(keyword in text for keyword in ["无法", "暂时", "有限", "获取"])
+    result = financial_news_context["result"]
+    tool_messages = [m for m in result["messages"] if _tool_name(m) in FINANCIAL_TOOL_NAMES]
+    assert tool_messages, "Expected financial news tool to be called"
+    assert _tool_payload(tool_messages[-1]) == []
 
-
-@then("the response should not be an error message")
-def then_response_should_not_be_error_message(financial_news_context):
     final_message = financial_news_context["result"]["messages"][-1]
-    text = _extract_text(final_message.content).strip()
+    text = content_to_text(final_message.content).strip()
     assert text
 
 

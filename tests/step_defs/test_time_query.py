@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_openai import ChatOpenAI
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from agent_diy.core.agent import create_agent
@@ -27,13 +25,8 @@ def context():
 
 
 @given("a running agent")
-def given_running_agent(context):
-    model = ChatOpenAI(
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-    )
-    context["agent"] = create_agent(model=model)
+def given_running_agent(context, qwen_model):
+    context["agent"] = create_agent(model=qwen_model)
 
 
 @when(parsers.parse('I ask "{text}"'))

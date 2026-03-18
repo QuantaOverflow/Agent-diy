@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import os
 import re
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -12,7 +11,6 @@ import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from langchain_openai import ChatOpenAI
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from agent_diy.__main__ import _stream_response
@@ -195,16 +193,8 @@ def then_non_llm_chunks_should_be_ignored(streaming_context):
 
 
 @given("a running streaming agent")
-def given_running_streaming_agent(streaming_context):
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
-        pytest.skip("DASHSCOPE_API_KEY not set")
-    model = ChatOpenAI(
-        api_key=api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-    )
-    streaming_context["agent"] = create_agent(model=model)
+def given_running_streaming_agent(streaming_context, qwen_model):
+    streaming_context["agent"] = create_agent(model=qwen_model)
 
 
 @when(parsers.parse('I stream "{question}"'))

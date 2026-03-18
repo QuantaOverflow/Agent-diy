@@ -153,7 +153,9 @@ def _format_result(date_text: str, horoscope: str, musings: str, affirmation: st
 
 @tool
 def get_astrology_email(date: str = "") -> str:
-    """Fetch astrology newsletter from Gmail. date: optional YYYY-MM-DD to query a specific date's email."""
+    """Fetch astrology newsletter from Gmail.
+    Call WITHOUT date to get today's horoscope.
+    Pass date (YYYY-MM-DD) to get a specific day's horoscope — the tool handles email timing internally."""
 
     credentials = Path("credentials.json")
     token = Path("token.json")
@@ -176,7 +178,9 @@ def get_astrology_email(date: str = "") -> str:
 
         if date:
             try:
-                query = _search_query_for_date(date)
+                dt = datetime.strptime(date, "%Y-%m-%d")
+                email_date = (dt - timedelta(days=1)).strftime("%Y-%m-%d")
+                query = _search_query_for_date(email_date)
             except ValueError:
                 return "date 参数格式错误，应为 YYYY-MM-DD。"
             results = search_tool.invoke({"query": query, "max_results": 5})

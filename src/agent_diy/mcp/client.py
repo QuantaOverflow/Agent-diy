@@ -2,42 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
+import os
 import sys
 import threading
-from collections.abc import Awaitable
 from typing import Any
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from agent_diy.utils import run_async_sync
 
 _CLIENT: MultiServerMCPClient | None = None
 _TOOLS = None
 _CACHE_LOCK = threading.RLock()
-
-
-def _run_async_sync(coro: Awaitable[Any]) -> Any:
-    """Run async code from sync contexts (with nested-loop safety)."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    result: Any = None
-    error: Exception | None = None
-
-    def _runner() -> None:
-        nonlocal result, error
-        try:
-            result = asyncio.run(coro)
-        except Exception as exc:  # noqa: BLE001
-            error = exc
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    thread.join()
-    if error is not None:
-        raise error
-    return result
 
 
 def _invalidate_cached_client() -> None:
@@ -76,7 +51,7 @@ def _attach_sync_func(tool: Any) -> Any:
     tool_name = getattr(tool, "name", "")
 
     def _sync_func(**kwargs: Any):
-        output = _run_async_sync(_invoke_tool_with_recovery(tool_name, kwargs))
+        output = run_async_sync(_invoke_tool_with_recovery(tool_name, kwargs))
         # MCP adapters use response_format=content_and_artifact.
         return output, output
 
@@ -99,6 +74,7 @@ async def get_financial_news_tools():
                         "transport": "stdio",
                         "command": sys.executable,
                         "args": ["-m", "agent_diy.mcp.financial_news_server"],
+                        "env": dict(os.environ),
                     }
                 }
             )

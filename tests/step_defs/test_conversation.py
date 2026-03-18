@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from agent_diy.core.agent import create_agent
+from agent_diy.utils import content_to_text
 
 scenarios(str(Path(__file__).resolve().parents[1] / "features" / "conversation.feature"))
 
@@ -23,25 +24,12 @@ def context():
     }
 
 
-def _extract_text(message):
-    content = message.content
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return " ".join(
-            item.get("text", "")
-            for item in content
-            if isinstance(item, dict)
-        )
-    return str(content)
-
-
 def _send_message(agent, thread_id: str, text: str) -> str:
     result = agent.invoke(
         {"messages": [HumanMessage(content=text)]},
         config={"configurable": {"thread_id": thread_id}},
     )
-    return _extract_text(result["messages"][-1])
+    return content_to_text(result["messages"][-1].content)
 
 
 @given("an agent with memory")

@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 
 from agent_diy.core.agent import create_agent
+from agent_diy.core.model import create_dashscope_model
 
 
 def _load_dotenv():
@@ -59,16 +59,12 @@ def _stream_response(agent, messages_input: dict, config: dict) -> str:
 
 def main():
     _load_dotenv()
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
+    try:
+        model = create_dashscope_model()
+    except ValueError:
         print("Error: DASHSCOPE_API_KEY not set")
         sys.exit(1)
 
-    model = ChatOpenAI(
-        api_key=api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-    )
     agent = create_agent(model=model)
     config = {"configurable": {"thread_id": "cli-session"}}
 
