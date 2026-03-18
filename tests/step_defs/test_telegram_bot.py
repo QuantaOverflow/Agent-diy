@@ -9,19 +9,50 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from telegram.error import NetworkError
 from pytest_bdd import given, parsers, scenarios, then, when
+from telegram.error import NetworkError
 
+from agent_diy.agent_backend import InProcessAgentBackend
 from agent_diy.telegram_bot import TelegramBot
+from agent_diy.utils import StreamEvent
 
 scenarios(str(Path(__file__).resolve().parents[1] / "features" / "telegram_bot.feature"))
+
+
+class MockStreamBackend:
+    def __init__(self):
+        self.reply_text = "mock reply"
+        self.raise_error = False
+        self.calls: list[int] = []
+
+    async def reply(self, user_id: int, text: str) -> str:
+        self.calls.append(user_id)
+        if self.raise_error:
+            raise RuntimeError("test error")
+        return self.reply_text
+
+    async def stream_reply(self, user_id: int, text: str):
+        self.calls.append(user_id)
+        if self.raise_error:
+            raise RuntimeError("test error")
+        yield StreamEvent(type="token", content=self.reply_text)
+
+
+class MockReplyOnlyBackend:
+    def __init__(self):
+        self.reply_text = "mock reply"
+        self.calls: list[int] = []
+
+    async def reply(self, user_id: int, text: str) -> str:
+        self.calls.append(user_id)
+        return self.reply_text
 
 
 @pytest.fixture
 def ctx():
     return {
         "bot": None,
-        "invoke_thread_ids": [],
+        "backend": None,
         "responses": {},
         "error": None,
         "last_message": None,
@@ -32,18 +63,17 @@ def ctx():
 
 @pytest.fixture
 def bot_factory(ctx, request):
-    """创建 TelegramBot，根据测试类型注入不同 agent。"""
+    """Create TelegramBot with backend abstraction for unit and e2e."""
     if request.node.get_closest_marker("e2e"):
         from agent_diy.core.agent import create_agent
 
-        agent = create_agent()
+        backend = InProcessAgentBackend(agent=create_agent())
     else:
-        agent = MagicMock()
-        agent.invoke.return_value = {"messages": [MagicMock(content="mock reply")]}
+        backend = MockStreamBackend()
 
-    bot = TelegramBot(token="fake-token")
-    bot._agent = agent
+    bot = TelegramBot(token="fake-token", backend=backend)
     ctx["bot"] = bot
+    ctx["backend"] = backend
     return bot
 
 
@@ -52,14 +82,14 @@ def given_bot_initialized(bot_factory):
     pass
 
 
-@given(parsers.parse('agent 对任意消息返回 "{text}"'))
-def given_agent_returns_text(ctx, text):
-    ctx["bot"]._agent.invoke.return_value = {"messages": [MagicMock(content=text)]}
+@given(parsers.parse('backend 对任意消息返回 "{text}"'))
+def given_backend_returns_text(ctx, text):
+    ctx["backend"].reply_text = text
 
 
-@given("agent 处理消息时抛出异常")
-def given_agent_raises_error(ctx):
-    ctx["bot"]._agent.invoke.side_effect = RuntimeError("test error")
+@given("backend 处理消息时抛出异常")
+def given_backend_raises_error(ctx):
+    ctx["backend"].raise_error = True
 
 
 @given("TELEGRAM_BOT_TOKEN 环境变量未配置")
@@ -67,16 +97,38 @@ def given_token_not_configured(ctx):
     ctx["token_missing"] = True
 
 
-@when(parsers.parse('用户 "{user_id}" 发送消息 "{message}"'))
-def when_user_sends_message(ctx, user_id, message):
-    response = asyncio.run(ctx["bot"].handle_message(int(user_id), message))
-    ctx["responses"][user_id] = response
+@when(parsers.parse('Telegram 收到用户 "{user_id}" 的消息 "{message}"'))
+def when_telegram_receives_message(ctx, user_id, message):
+    sent_message = AsyncMock()
+    sent_message.edit_text = AsyncMock()
 
-    agent = ctx["bot"]._agent
-    if hasattr(agent, "invoke") and hasattr(agent.invoke, "call_args") and agent.invoke.call_args:
-        ctx["invoke_thread_ids"].append(
-            agent.invoke.call_args.kwargs["config"]["configurable"]["thread_id"]
-        )
+    msg = MagicMock()
+    msg.date = datetime.now(timezone.utc)
+    msg.text = message
+    if ctx["reply_side_effect_sequences"]:
+        msg.reply_text = AsyncMock(side_effect=ctx["reply_side_effect_sequences"].pop(0))
+    else:
+        msg.reply_text = AsyncMock(return_value=sent_message)
+
+    update = MagicMock()
+    update.effective_user = MagicMock(id=int(user_id))
+    update.message = msg
+
+    asyncio.run(ctx["bot"]._on_text_message(update, None))
+
+    ctx["last_message"] = msg
+    ctx["handled_messages"].append(msg)
+
+    reply_calls = [call.args[0] for call in msg.reply_text.await_args_list]
+    edit_calls = [call.args[0] for call in sent_message.edit_text.call_args_list]
+
+    if edit_calls:
+        extra_chunks = "".join(reply_calls[1:]) if len(reply_calls) > 1 else ""
+        ctx["responses"][str(user_id)] = edit_calls[-1] + extra_chunks
+    elif reply_calls:
+        ctx["responses"][str(user_id)] = reply_calls[-1]
+    else:
+        ctx["responses"][str(user_id)] = ""
 
 
 @when("尝试启动 Telegram bot")
@@ -94,6 +146,10 @@ def given_bot_start_time(ctx, dt):
 
 @given("第一条消息发送回复将连续失败三次，第二条消息发送成功")
 def given_first_fail_then_second_success(ctx):
+    # This scenario verifies fallback send retry behavior only.
+    fallback_backend = MockReplyOnlyBackend()
+    ctx["bot"]._backend = fallback_backend
+    ctx["backend"] = fallback_backend
     ctx["reply_side_effect_sequences"] = [
         [
             NetworkError("transient network error"),
@@ -113,7 +169,9 @@ def when_receive_telegram_text_message(ctx, dt):
     if ctx["reply_side_effect_sequences"]:
         message.reply_text = AsyncMock(side_effect=ctx["reply_side_effect_sequences"].pop(0))
     else:
-        message.reply_text = AsyncMock()
+        sent_message = AsyncMock()
+        sent_message.edit_text = AsyncMock()
+        message.reply_text = AsyncMock(return_value=sent_message)
 
     update = MagicMock()
     update.effective_user = MagicMock(id=123)
@@ -124,11 +182,11 @@ def when_receive_telegram_text_message(ctx, dt):
     ctx["handled_messages"].append(message)
 
 
-@then("两个请求应使用不同的 thread_id")
-def then_two_requests_use_different_thread_id(ctx):
-    thread_ids = ctx["invoke_thread_ids"]
-    assert len(thread_ids) >= 2
-    assert thread_ids[0] != thread_ids[1]
+@then("两个请求应使用不同的会话标识")
+def then_two_requests_use_different_session_id(ctx):
+    calls = ctx["backend"].calls
+    assert len(calls) >= 2
+    assert calls[0] != calls[1]
 
 
 @then(parsers.parse('bot 应向用户 "{user_id}" 发送文本 "{text}"'))
@@ -148,7 +206,7 @@ def then_should_raise_missing_config_error(ctx):
 
 @then("agent 不应被调用")
 def then_agent_should_not_be_called(ctx):
-    assert ctx["bot"]._agent.invoke.call_count == 0
+    assert len(ctx["backend"].calls) == 0
 
 
 @then("bot 不应发送任何回复")
@@ -157,14 +215,14 @@ def then_bot_should_not_send_reply(ctx):
     ctx["last_message"].reply_text.assert_not_called()
 
 
-@then("agent 应被调用一次")
-def then_agent_should_be_called_once(ctx):
-    assert ctx["bot"]._agent.invoke.call_count == 1
+@then("backend 应被调用一次")
+def then_backend_should_be_called_once(ctx):
+    assert len(ctx["backend"].calls) == 1
 
 
-@then("agent 应被调用两次")
-def then_agent_should_be_called_twice(ctx):
-    assert ctx["bot"]._agent.invoke.call_count == 2
+@then("backend 应被调用两次")
+def then_backend_should_be_called_twice(ctx):
+    assert len(ctx["backend"].calls) == 2
 
 
 @then("第二条消息应成功发送回复")

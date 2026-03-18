@@ -6,7 +6,7 @@ import logging
 import os
 import time
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from telegram import Update
@@ -63,6 +63,18 @@ class TelegramBot:
         prefix = "[内容较长，显示末尾部分]\n"
         keep = TELEGRAM_MAX_MESSAGE_CHARS - len(prefix)
         return prefix + text[-keep:]
+
+    @staticmethod
+    def _retry_after_seconds(exc: RetryAfter) -> float:
+        retry_after = getattr(exc, "_retry_after", None)
+        if retry_after is None:
+            retry_after = getattr(exc, "retry_after", None)
+        if isinstance(retry_after, timedelta):
+            return max(retry_after.total_seconds(), 1.0)
+        try:
+            return max(float(retry_after or 1), 1.0)
+        except (TypeError, ValueError):
+            return 1.0
 
     @staticmethod
     def _default_backend() -> AgentBackend:
@@ -143,7 +155,7 @@ class TelegramBot:
                         last_sent_text = preview
                         last_edit_time = now
                     except RetryAfter as exc:
-                        retry_after = max(float(exc.retry_after or 1), 1.0)
+                        retry_after = self._retry_after_seconds(exc)
                         rate_limited_until = time.monotonic() + retry_after
                         logger.warning(
                             "Telegram edit rate-limited; pause edits for %.1fs (user_id=%s)",
@@ -171,7 +183,7 @@ class TelegramBot:
                         try:
                             await update.message.reply_text(chunk)
                         except RetryAfter as exc:
-                            retry_after = max(float(exc.retry_after or 1), 1.0)
+                            retry_after = self._retry_after_seconds(exc)
                             logger.warning(
                                 "Telegram send rate-limited; waiting %.1fs before next chunk (user_id=%s)",
                                 retry_after,
