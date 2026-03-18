@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import json
+from collections.abc import AsyncIterator
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_diy.agent_backend import AgentBackend, InProcessAgentBackend
@@ -38,6 +41,20 @@ def create_app(
             raise HTTPException(status_code=401, detail="unauthorized")
         reply = await service_backend.reply(user_id=payload.user_id, text=payload.text)
         return ReplyResponse(reply=reply)
+
+    @app.post("/v1/telegram/stream")
+    async def telegram_stream(
+        payload: ReplyRequest,
+        x_agent_bridge_token: str | None = Header(default=None, alias="X-Agent-Bridge-Token"),
+    ) -> StreamingResponse:
+        if not token or x_agent_bridge_token != token:
+            raise HTTPException(status_code=401, detail="unauthorized")
+
+        async def _event_lines() -> AsyncIterator[str]:
+            async for event in service_backend.stream_reply(user_id=payload.user_id, text=payload.text):
+                yield json.dumps({"type": event.type, "content": event.content}, ensure_ascii=False) + "\n"
+
+        return StreamingResponse(_event_lines(), media_type="application/x-ndjson")
 
     return app
 

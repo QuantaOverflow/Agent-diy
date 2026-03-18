@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage
 
 from agent_diy.core.agent import create_agent
 from agent_diy.core.model import create_dashscope_model
+from agent_diy.utils import parse_stream_chunk
 
 
 def _load_dotenv():
@@ -34,24 +35,17 @@ def _stream_response(agent, messages_input: dict, config: dict) -> str:
         stream_mode="messages",
         version="v2",
     ):
-        if isinstance(chunk, tuple) and len(chunk) == 2:
-            msg, metadata = chunk
-        elif isinstance(chunk, dict) and chunk.get("type") == "messages":
-            msg, metadata = chunk["data"]
-        else:
+        event = parse_stream_chunk(chunk)
+        if event is None:
             continue
-        node = metadata.get("langgraph_node", "")
 
-        if node == "llm_call":
-            if hasattr(msg, "tool_call_chunks") and msg.tool_call_chunks:
-                for tc in msg.tool_call_chunks:
-                    name = tc.get("name")
-                    if name and name not in tool_call_announced:
-                        tool_call_announced.add(name)
-                        print(f"\n[工具调用: {name}]", flush=True)
-            elif msg.content:
-                print(msg.content, end="", flush=True)
-                full_text += msg.content
+        if event.type == "tool_call":
+            if event.content not in tool_call_announced:
+                tool_call_announced.add(event.content)
+                print(f"\n[工具调用: {event.content}]", flush=True)
+        elif event.type == "token":
+            print(event.content, end="", flush=True)
+            full_text += event.content
 
     print()
     return full_text

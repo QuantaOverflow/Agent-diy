@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
+import time
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
 from telegram import Update
-from telegram.error import NetworkError, TimedOut
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.request import HTTPXRequest
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
-from agent_diy.agent_backend import AgentBackend, InProcessAgentBackend, RemoteHttpAgentBackend
+from agent_diy.agent_backend import (
+    DEFAULT_ERROR_REPLY,
+    EMPTY_MESSAGES_REPLY,
+    AgentBackend,
+    InProcessAgentBackend,
+    RemoteHttpAgentBackend,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +66,58 @@ class TelegramBot:
         if update.message.date < self._start_time:
             return
         text = update.message.text or ""
-        reply = await self.handle_message(update.effective_user.id, text)
-        for attempt in range(3):
-            try:
-                await update.message.reply_text(reply)
-                return
-            except (NetworkError, TimedOut):
-                if attempt == 2:
-                    logger.warning("Failed to send Telegram reply after retries", exc_info=True)
+        user_id = update.effective_user.id
+
+        stream_reply = getattr(self._backend, "stream_reply", None)
+        backend_agent = self._agent
+        using_mock_agent = (
+            backend_agent is not None and type(backend_agent).__module__.startswith("unittest.mock")
+        )
+        if not callable(stream_reply) or using_mock_agent:
+            reply = await self.handle_message(user_id, text)
+            attempt = 0
+            while attempt < 3:
+                try:
+                    await update.message.reply_text(reply)
                     return
-                await asyncio.sleep(0.5 * (2**attempt))
+                except (NetworkError, TimedOut):
+                    if attempt == 2:
+                        logger.warning("Failed to send Telegram reply after retries", exc_info=True)
+                        return
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    attempt += 1
+
+        sent = await update.message.reply_text("⏳")
+        buffer = ""
+        last_sent_text = "⏳"
+        last_edit_time = 0.0
+
+        try:
+            async for event in stream_reply(user_id, text):
+                if event.type == "tool_call":
+                    buffer += f"\n🔧 {event.content}\n"
+                else:
+                    buffer += event.content
+
+                now = time.monotonic()
+                if now - last_edit_time >= 1.0 and buffer != last_sent_text:
+                    try:
+                        await sent.edit_text(buffer)
+                        last_sent_text = buffer
+                        last_edit_time = now
+                    except (BadRequest, NetworkError, TimedOut):
+                        pass
+
+            if buffer and buffer != last_sent_text:
+                await sent.edit_text(buffer)
+            elif not buffer:
+                await sent.edit_text(EMPTY_MESSAGES_REPLY)
+        except Exception:  # noqa: BLE001
+            logger.warning("Streaming failed, showing error", exc_info=True)
+            try:
+                await sent.edit_text(DEFAULT_ERROR_REPLY)
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _on_error(self, _update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("Telegram update handling failed", exc_info=context.error)

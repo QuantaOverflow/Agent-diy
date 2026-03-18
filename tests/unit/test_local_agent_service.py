@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
 from agent_diy.agent_backend import InProcessAgentBackend
+from agent_diy.utils import StreamEvent
 from agent_diy.local_agent_service import create_app
 
 
@@ -68,3 +70,29 @@ def test_local_service_uses_inprocess_backend():
     assert response.status_code == 200
     assert response.json() == {"reply": "from-agent"}
     assert agent.invoke.call_count == 1
+
+
+def test_local_service_streams_ndjson_events():
+    async def _stream_reply(*, user_id: int, text: str):
+        assert user_id == 1
+        assert text == "hi"
+        yield StreamEvent(type="token", content="你")
+        yield StreamEvent(type="token", content="好")
+
+    backend = AsyncMock()
+    backend.stream_reply = _stream_reply
+    app = create_app(bridge_token="secret", backend=backend)
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/telegram/stream",
+        json={"user_id": 1, "text": "hi"},
+        headers={"X-Agent-Bridge-Token": "secret"},
+    )
+
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.strip()]
+    assert [json.loads(line) for line in lines] == [
+        {"type": "token", "content": "你"},
+        {"type": "token", "content": "好"},
+    ]
