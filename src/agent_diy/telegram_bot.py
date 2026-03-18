@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from telegram import Update
-from telegram.error import BadRequest, NetworkError, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.request import HTTPXRequest
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
@@ -123,6 +123,7 @@ class TelegramBot:
         buffer = ""
         last_sent_text = "⏳"
         last_edit_time = 0.0
+        rate_limited_until = 0.0
 
         try:
             async for event in stream_reply(user_id, text):
@@ -132,12 +133,23 @@ class TelegramBot:
                     buffer += event.content
 
                 now = time.monotonic()
+                if now < rate_limited_until:
+                    continue
+
                 preview = self._preview_text_for_stream(buffer)
                 if now - last_edit_time >= self._stream_edit_interval_sec and preview != last_sent_text:
                     try:
                         await sent.edit_text(preview)
                         last_sent_text = preview
                         last_edit_time = now
+                    except RetryAfter as exc:
+                        retry_after = max(float(exc.retry_after or 1), 1.0)
+                        rate_limited_until = time.monotonic() + retry_after
+                        logger.warning(
+                            "Telegram edit rate-limited; pause edits for %.1fs (user_id=%s)",
+                            retry_after,
+                            user_id,
+                        )
                     except (BadRequest, NetworkError, TimedOut):
                         pass
 
@@ -146,11 +158,27 @@ class TelegramBot:
                 if len(chunks) == 1:
                     final_text = chunks[0]
                     if final_text != last_sent_text:
-                        await sent.edit_text(final_text)
+                        try:
+                            await sent.edit_text(final_text)
+                        except RetryAfter:
+                            await update.message.reply_text(final_text)
                 else:
-                    await sent.edit_text(chunks[0])
+                    try:
+                        await sent.edit_text(chunks[0])
+                    except RetryAfter:
+                        await update.message.reply_text(chunks[0])
                     for chunk in chunks[1:]:
-                        await update.message.reply_text(chunk)
+                        try:
+                            await update.message.reply_text(chunk)
+                        except RetryAfter as exc:
+                            retry_after = max(float(exc.retry_after or 1), 1.0)
+                            logger.warning(
+                                "Telegram send rate-limited; waiting %.1fs before next chunk (user_id=%s)",
+                                retry_after,
+                                user_id,
+                            )
+                            await asyncio.sleep(retry_after)
+                            await update.message.reply_text(chunk)
             elif not buffer:
                 await sent.edit_text(EMPTY_MESSAGES_REPLY)
             logger.info("Telegram message handled: user_id=%s, output_len=%s", user_id, len(buffer))
