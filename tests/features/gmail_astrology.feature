@@ -11,7 +11,7 @@ Feature: Gmail astrology digest
   Background:
     Given Gmail credentials are configured
 
-  @e2e
+  @integration
   Scenario Outline: Agent summarizes today's astrology email in Chinese
     Given a running agent
     When I ask "<question>"
@@ -23,20 +23,20 @@ Feature: Gmail astrology digest
       | 今天的星座运势怎么样       |
       | 给我总结一下今天的星座邮件 |
 
-  @e2e
+  @integration
   Scenario: Agent answers about a specific section of the email
     Given a running agent
     When I ask "今天的星座格言是什么"
     Then the response should contain astrology content
     And the response should be in Chinese
 
-  @e2e
+  @integration
   Scenario: Non-astrology question does not trigger email reading
     Given a running agent
     When I ask "你好"
     Then the response should not contain astrology content
 
-  @e2e
+  @integration
   Scenario: Agent fetches astrology email for a specified past date
     Given a running agent
     When I ask "昨日星座运势"
@@ -44,7 +44,7 @@ Feature: Gmail astrology digest
     And the response should be in Chinese
     And the response should indicate which date the email is from
 
-  @e2e
+  @integration
   Scenario: Agent informs user when no email exists for the requested date
     Given a running agent
     When I ask "2024年1月1日的星座运势"
@@ -70,7 +70,7 @@ Feature: Gmail astrology digest
     When I call the astrology email tool with date "2024-01-01"
     Then the tool result should indicate no email was found for that date
 
-  @e2e
+  @integration
   Scenario: Today's astrology query returns an email from the expected date range
     Given a running agent
     When I ask "今日星座运势"

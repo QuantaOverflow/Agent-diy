@@ -34,7 +34,7 @@ Feature: Telegram Bot 接入
 
   # ─── E2E 层：验证 LLM 能力与功能路由 ──────────────────────────────────
 
-  @e2e
+  @integration
   Scenario Outline: 用户通过 Telegram 进行自由对话
     Given Telegram bot 已初始化
     When Telegram 收到用户 "100" 的消息 "<message>"
@@ -45,7 +45,7 @@ Feature: Telegram Bot 接入
       | 你是谁？         |
       | 帮我写一首短诗   |
 
-  @e2e
+  @integration
   Scenario Outline: 用户通过 Telegram 查询星座运势
     Given Telegram bot 已初始化
     And Gmail credentials are configured
@@ -58,7 +58,7 @@ Feature: Telegram Bot 接入
       | 今天白羊座运势怎么样？     |
       | 帮我查一下双子座今日运势   |
 
-  @e2e
+  @integration
   Scenario Outline: 用户通过 Telegram 查询天气
     Given Telegram bot 已初始化
     When Telegram 收到用户 "100" 的消息 "<message>"
@@ -69,7 +69,7 @@ Feature: Telegram Bot 接入
       | 北京今天天气怎么样？   |
       | 上海明天会下雨吗？     |
 
-  @e2e
+  @integration
   Scenario Outline: 用户通过 Telegram 触发网络搜索
     Given Telegram bot 已初始化
     When Telegram 收到用户 "100" 的消息 "<message>"
@@ -80,7 +80,7 @@ Feature: Telegram Bot 接入
       | 搜一下最近 AI 领域新进展     |
       | 帮我查查 DeepSeek 最新动态   |
 
-  @e2e
+  @integration
   Scenario: 多轮对话保持上下文
     Given Telegram bot 已初始化
     When Telegram 收到用户 "100" 的消息 "我叫小明"
@@ -112,9 +112,28 @@ Feature: Telegram Bot 接入
     Then backend 应被调用两次
     And 第二条消息应成功发送回复
 
-  @e2e
+  @integration
   Scenario: 不同用户对话上下文互不干扰
     Given Telegram bot 已初始化
     When Telegram 收到用户 "101" 的消息 "我的名字是 Alice"
     And Telegram 收到用户 "102" 的消息 "我叫什么名字？"
     Then 用户 "102" 的回复不应提及 "Alice"
+
+  # ─── /clear 命令：重置会话上下文 ────────────────────────────────────────
+
+  @unit
+  Scenario: /clear 命令重置会话标识
+    Given Telegram bot 已初始化
+    When Telegram 收到用户 "200" 的消息 "你好"
+    And 用户 "200" 发送命令 "/clear"
+    And Telegram 收到用户 "200" 的消息 "再见"
+    Then /clear 前后用户 "200" 的会话标识应不同
+    And bot 应回复对话重置确认
+
+  @integration
+  Scenario: /clear 后对话不再保留之前的记忆
+    Given Telegram bot 已初始化
+    When Telegram 收到用户 "300" 的消息 "我叫小红"
+    And 用户 "300" 发送命令 "/clear"
+    And Telegram 收到用户 "300" 的消息 "你还记得我叫什么名字吗？"
+    Then 用户 "300" 的回复不应提及 "小红"

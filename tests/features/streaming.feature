@@ -33,7 +33,7 @@ Feature: 流式输出
     When the CLI processes the stream
     Then non-llm chunks should be ignored
 
-  @e2e
+  @integration
   Scenario Outline: 用户提问时 token 逐步到达
     Given a running streaming agent
     When I stream "<问题>"
@@ -45,7 +45,7 @@ Feature: 流式输出
       | 给我讲个笑话   |
       | 什么是量子纠缠 |
 
-  @e2e
+  @integration
   Scenario: 工具调用时显示状态且回复含天气信息
     Given a running streaming agent
     When I stream "北京现在天气怎么样"

@@ -24,6 +24,7 @@ class MockStreamBackend:
         self.reply_text = "mock reply"
         self.raise_error = False
         self.calls: list[int] = []
+        self.session_versions: dict[int, int] = {}
 
     async def reply(self, user_id: int, text: str) -> str:
         self.calls.append(user_id)
@@ -36,6 +37,9 @@ class MockStreamBackend:
         if self.raise_error:
             raise RuntimeError("test error")
         yield StreamEvent(type="token", content=self.reply_text)
+
+    def reset_session(self, user_id: int) -> None:
+        self.session_versions[user_id] = self.session_versions.get(user_id, 0) + 1
 
 
 class MockReplyOnlyBackend:
@@ -63,8 +67,8 @@ def ctx():
 
 @pytest.fixture
 def bot_factory(ctx, request):
-    """Create TelegramBot with backend abstraction for unit and e2e."""
-    if request.node.get_closest_marker("e2e"):
+    """Create TelegramBot with backend abstraction for unit and integration."""
+    if request.node.get_closest_marker("integration"):
         from agent_diy.core.agent import create_agent
 
         backend = InProcessAgentBackend(agent=create_agent())
@@ -273,3 +277,26 @@ def then_response_mentions_text(ctx, text):
 @then(parsers.parse('用户 "{user_id}" 的回复不应提及 "{text}"'))
 def then_user_response_should_not_mention_text(ctx, user_id, text):
     assert text not in ctx["responses"][str(user_id)]
+
+
+@when(parsers.parse('用户 "{user_id}" 发送命令 "/clear"'))
+def when_user_sends_clear_command(ctx, user_id):
+    msg = MagicMock()
+    msg.reply_text = AsyncMock()
+    update = MagicMock()
+    update.effective_user = MagicMock(id=int(user_id))
+    update.message = msg
+
+    asyncio.run(ctx["bot"]._on_clear_command(update, None))
+    ctx["clear_reply"] = msg.reply_text.await_args.args[0]
+
+
+@then(parsers.parse('/clear 前后用户 "{user_id}" 的会话标识应不同'))
+def then_clear_should_change_session_id(ctx, user_id):
+    versions = ctx["backend"].session_versions
+    assert versions[int(user_id)] > 0
+
+
+@then("bot 应回复对话重置确认")
+def then_bot_should_reply_clear_confirmation(ctx):
+    assert "重置" in ctx["clear_reply"]

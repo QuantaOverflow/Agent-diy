@@ -3,7 +3,7 @@ Feature: Time query
   I want to ask the agent for the current time
   So that I get an accurate answer in China timezone
 
-  @e2e
+  @integration
   Scenario Outline: Agent answers time queries in various phrasings
     Given a running agent
     When I ask "<question>"
@@ -16,7 +16,7 @@ Feature: Time query
       | what time is it  |
       | 几点了           |
 
-  @e2e
+  @integration
   Scenario: Non-time question does not return time
     Given a running agent
     When I ask "你好"

@@ -28,10 +28,14 @@ def reset_financial_news_runtime_cache():
 
 
 def pytest_collection_modifyitems(config, items):
-    """Map feature file tags to pytest markers and auto-skip e2e without API key."""
+    """Map feature file tags to pytest markers and auto-skip integration without API key."""
     for item in items:
         # pytest-bdd stores tags from feature files in item.get_closest_marker
         # but we need to check keywords for scenario-level tags
+        if "integration" in item.keywords:
+            item.add_marker(pytest.mark.integration)
+            if not os.getenv("DASHSCOPE_API_KEY"):
+                item.add_marker(pytest.mark.skip(reason="DASHSCOPE_API_KEY not set"))
         if "e2e" in item.keywords:
             item.add_marker(pytest.mark.e2e)
             if not os.getenv("DASHSCOPE_API_KEY"):

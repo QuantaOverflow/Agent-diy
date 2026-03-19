@@ -12,7 +12,7 @@ from typing import Any
 from telegram import Update
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.request import HTTPXRequest
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from agent_diy.agent_backend import (
     DEFAULT_ERROR_REPLY,
@@ -201,6 +201,13 @@ class TelegramBot:
             except Exception:  # noqa: BLE001
                 pass
 
+    async def _on_clear_command(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_user is None or update.message is None:
+            return
+        user_id = update.effective_user.id
+        self._backend.reset_session(user_id)
+        await update.message.reply_text("对话已重置，可以开始新的对话。")
+
     async def _on_error(self, _update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("Telegram update handling failed", exc_info=context.error)
 
@@ -213,6 +220,7 @@ class TelegramBot:
             httpx_kwargs={"trust_env": False},
         )
         application = Application.builder().token(self._token).request(request).build()
+        application.add_handler(CommandHandler("clear", self._on_clear_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_text_message))
         application.add_error_handler(self._on_error)
         return application

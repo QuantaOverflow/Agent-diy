@@ -24,7 +24,7 @@ def test_inprocess_backend_returns_last_message_text():
 
     assert reply == "hello"
     kwargs = agent.invoke.call_args.kwargs
-    assert kwargs["config"]["configurable"]["thread_id"] == "123"
+    assert kwargs["config"]["configurable"]["thread_id"] == "123-0"
 
 
 def test_inprocess_backend_returns_error_on_empty_messages():

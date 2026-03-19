@@ -69,7 +69,7 @@ def _tool_payload(message):
         return None
 
 
-def _require_e2e_env():
+def _require_integration_env():
     if not os.getenv("DASHSCOPE_API_KEY"):
         pytest.skip("DASHSCOPE_API_KEY not set")
 
@@ -83,7 +83,7 @@ def _require_e2e_env():
 
 @given("a running agent")
 def given_running_agent(financial_news_context, qwen_model):
-    _require_e2e_env()
+    _require_integration_env()
     financial_news_context["agent"] = create_agent(model=qwen_model)
 
 

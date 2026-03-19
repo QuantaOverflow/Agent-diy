@@ -3,7 +3,7 @@ Feature: Financial news integration
   I want the agent to retrieve A-share financial news when I ask about stocks or markets
   So that I get up-to-date market insights beyond the LLM's training data
 
-  @e2e
+  @integration
   Scenario Outline: Agent queries financial news for market topics
     Given a running agent
     When I ask "<question>"
@@ -16,7 +16,7 @@ Feature: Financial news integration
       | 新能源板块最近表现怎么样           |
       | 人工智能概念股最近有什么消息       |
 
-  @e2e
+  @integration
   Scenario Outline: Agent retrieves comprehensive information for specific stock queries
     Given a running agent
     When I ask "<question>"
@@ -28,7 +28,7 @@ Feature: Financial news integration
       | 帮我看看比亚迪的最新消息        |
       | 宁德时代最近有什么新闻          |
 
-  @e2e
+  @integration
   Scenario Outline: Agent does not query financial news for non-financial questions
     Given a running agent
     When I ask "<question>"
@@ -41,7 +41,7 @@ Feature: Financial news integration
       | 股票是什么           |
       | 巴菲特是谁           |
 
-  @e2e
+  @integration
   Scenario: Agent degrades gracefully when financial news service is unavailable
     Given a running agent with unavailable financial news service
     When I ask "最近股市有什么热点"

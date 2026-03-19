@@ -26,10 +26,17 @@ class AgentBackend(Protocol):
     def stream_reply(self, user_id: int, text: str) -> AsyncIterator[StreamEvent]:
         """Stream reply events for a user's message."""
 
+    def reset_session(self, user_id: int) -> None:
+        """Reset conversation session for a user, clearing history."""
+
 
 class InProcessAgentBackend:
     def __init__(self, agent: Any | None = None):
         self._agent = agent
+        self._sessions: dict[int, int] = {}
+
+    def _thread_id(self, user_id: int) -> str:
+        return f"{user_id}-{self._sessions.get(user_id, 0)}"
 
     def _get_agent(self) -> Any:
         if self._agent is None:
@@ -41,7 +48,7 @@ class InProcessAgentBackend:
             result = await asyncio.to_thread(
                 self._get_agent().invoke,
                 {"messages": [HumanMessage(content=text)]},
-                config={"configurable": {"thread_id": str(user_id)}},
+                config={"configurable": {"thread_id": self._thread_id(user_id)}},
             )
             messages = result.get("messages", [])
             if not messages:
@@ -58,7 +65,7 @@ class InProcessAgentBackend:
             try:
                 for chunk in self._get_agent().stream(
                     {"messages": [HumanMessage(content=text)]},
-                    config={"configurable": {"thread_id": str(user_id)}},
+                    config={"configurable": {"thread_id": self._thread_id(user_id)}},
                     stream_mode="messages",
                     version="v2",
                 ):
@@ -81,6 +88,9 @@ class InProcessAgentBackend:
                 yield item
         finally:
             await worker_task
+
+    def reset_session(self, user_id: int) -> None:
+        self._sessions[user_id] = self._sessions.get(user_id, 0) + 1
 
 
 class RemoteHttpAgentBackend:
@@ -189,3 +199,6 @@ class RemoteHttpAgentBackend:
 
         full_text = await self.reply(user_id, text)
         yield StreamEvent("token", full_text)
+
+    def reset_session(self, user_id: int) -> None:
+        _ = user_id

@@ -38,7 +38,8 @@ packages = ["src/agent_diy"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-  "e2e: end-to-end tests requiring real API",
   "unit: unit tests with mocked dependencies",
+  "integration: integration tests requiring real LLM API, mock external entry points",
+  "e2e: end-to-end tests requiring all real services (deployed bot, real APIs)",
 ]
-addopts = "-ra -m 'not e2e'"
+addopts = "-ra -m 'not integration and not e2e'"
