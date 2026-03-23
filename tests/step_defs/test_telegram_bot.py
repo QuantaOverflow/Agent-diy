@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -53,19 +53,6 @@ class MockReplyOnlyBackend:
 
 
 @pytest.fixture
-def ctx():
-    return {
-        "bot": None,
-        "backend": None,
-        "responses": {},
-        "error": None,
-        "last_message": None,
-        "handled_messages": [],
-        "reply_side_effect_sequences": [],
-    }
-
-
-@pytest.fixture
 def bot_factory(ctx, request):
     """Create TelegramBot with backend abstraction for unit and integration."""
     if request.node.get_closest_marker("integration"):
@@ -81,58 +68,14 @@ def bot_factory(ctx, request):
     return bot
 
 
-@given("Telegram bot 已初始化")
-def given_bot_initialized(bot_factory):
-    pass
-
-
 @given(parsers.parse('backend 对任意消息返回 "{text}"'))
 def given_backend_returns_text(ctx, text):
     ctx["backend"].reply_text = text
 
 
-@given("backend 处理消息时抛出异常")
-def given_backend_raises_error(ctx):
-    ctx["backend"].raise_error = True
-
-
 @given("TELEGRAM_BOT_TOKEN 环境变量未配置")
 def given_token_not_configured(ctx):
     ctx["token_missing"] = True
-
-
-@when(parsers.parse('Telegram 收到用户 "{user_id}" 的消息 "{message}"'))
-def when_telegram_receives_message(ctx, user_id, message):
-    sent_message = AsyncMock()
-    sent_message.edit_text = AsyncMock()
-
-    msg = MagicMock()
-    msg.date = datetime.now(timezone.utc)
-    msg.text = message
-    if ctx["reply_side_effect_sequences"]:
-        msg.reply_text = AsyncMock(side_effect=ctx["reply_side_effect_sequences"].pop(0))
-    else:
-        msg.reply_text = AsyncMock(return_value=sent_message)
-
-    update = MagicMock()
-    update.effective_user = MagicMock(id=int(user_id))
-    update.message = msg
-
-    asyncio.run(ctx["bot"]._on_text_message(update, None))
-
-    ctx["last_message"] = msg
-    ctx["handled_messages"].append(msg)
-
-    reply_calls = [call.args[0] for call in msg.reply_text.await_args_list]
-    edit_calls = [call.args[0] for call in sent_message.edit_text.call_args_list]
-
-    if edit_calls:
-        extra_chunks = "".join(reply_calls[1:]) if len(reply_calls) > 1 else ""
-        ctx["responses"][str(user_id)] = edit_calls[-1] + extra_chunks
-    elif reply_calls:
-        ctx["responses"][str(user_id)] = reply_calls[-1]
-    else:
-        ctx["responses"][str(user_id)] = ""
 
 
 @when("尝试启动 Telegram bot")
@@ -198,11 +141,6 @@ def then_bot_sends_text(ctx, user_id, text):
     assert ctx["responses"][user_id] == text
 
 
-@then(parsers.parse('bot 应向用户 "{user_id}" 发送包含 "{keyword}" 的消息'))
-def then_bot_sends_message_with_keyword(ctx, user_id, keyword):
-    assert keyword in ctx["responses"][user_id]
-
-
 @then("应抛出配置缺失错误")
 def then_should_raise_missing_config_error(ctx):
     assert isinstance(ctx["error"], ValueError)
@@ -266,17 +204,6 @@ def then_response_contains_weather(ctx):
 def then_response_related_to_search(ctx):
     response = list(ctx["responses"].values())[-1]
     assert len(response) > 10 and "出错" not in response
-
-
-@then(parsers.parse('bot 的回复应提及 "{text}"'))
-def then_response_mentions_text(ctx, text):
-    response = list(ctx["responses"].values())[-1]
-    assert text in response
-
-
-@then(parsers.parse('用户 "{user_id}" 的回复不应提及 "{text}"'))
-def then_user_response_should_not_mention_text(ctx, user_id, text):
-    assert text not in ctx["responses"][str(user_id)]
 
 
 @when(parsers.parse('用户 "{user_id}" 发送命令 "/clear"'))

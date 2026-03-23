@@ -20,6 +20,7 @@ dependencies = [
   "httpx",
   "langchain-google-community[gmail]>=3.0.5",
   "python-telegram-bot>=22.7",
+  "apscheduler>=3.10.0",
   "fastapi>=0.135.1",
   "uvicorn>=0.41.0",
 ]

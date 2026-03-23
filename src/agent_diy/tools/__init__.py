@@ -7,6 +7,7 @@ from .weather import (
 )
 from .search import web_search
 from .gmail_astrology import get_astrology_email
+from .reminder import make_reminder_tools
 
 __all__ = [
     "get_current_weather",
@@ -14,4 +15,5 @@ __all__ = [
     "get_sunrise_sunset",
     "web_search",
     "get_astrology_email",
+    "make_reminder_tools",
 ]

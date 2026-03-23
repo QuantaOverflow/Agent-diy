@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import os
 import time
+import zlib
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -70,7 +72,10 @@ def _default_model() -> Any:
         return init_chat_model(DEFAULT_MODEL)
 
 
-def _build_graph(model: Any = None):
+def _build_graph(
+    model: Any = None,
+    extra_tools: list[Any] | None = None,
+):
     """Build the StateGraph (uncompiled)."""
     if model is None:
         model = _default_model()
@@ -82,18 +87,27 @@ def _build_graph(model: Any = None):
         web_search,
         get_astrology_email,
         *financial_tools,
+        *(extra_tools or []),
     ]
     model_with_tools = model.bind_tools(tools)
     system_prompt = build_system_prompt(
-        financial_tools_available=bool(financial_tools)
+        financial_tools_available=bool(financial_tools),
+        reminder_tools_available=bool(extra_tools),
     )
 
-    def llm_call(state: MessagesState):
+    def llm_call(state: MessagesState, config: RunnableConfig):
+        configurable = config.get("configurable", {})
+        raw_user_id = configurable.get("user_id")
+        thread_id = configurable.get("thread_id", "")
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            user_id = zlib.crc32(str(thread_id).encode("utf-8")) if thread_id else 0
         now = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y年%m月%d日 %H:%M")
-        system = SystemMessage(content=system_prompt + f"\n当前北京时间：{now}")
-        response = model_with_tools.invoke(
-            [system] + state["messages"]
+        system = SystemMessage(
+            content=system_prompt + f"\n当前北京时间：{now}\n当前用户ID：{user_id}"
         )
+        response = model_with_tools.invoke([system] + state["messages"])
         return {"messages": [response]}
 
     tool_node = ToolNode(tools)
@@ -107,11 +121,15 @@ def _build_graph(model: Any = None):
     return builder
 
 
-def create_agent(model: Any = None, model_name: str = DEFAULT_MODEL):
+def create_agent(
+    model: Any = None,
+    model_name: str = DEFAULT_MODEL,
+    extra_tools: list[Any] | None = None,
+):
     """Create a conversational agent graph with checkpointed memory."""
     if model is None and not os.getenv("DASHSCOPE_API_KEY"):
         model = init_chat_model(model_name)
-    builder = _build_graph(model)
+    builder = _build_graph(model, extra_tools=extra_tools)
     checkpointer = InMemorySaver()
     return builder.compile(checkpointer=checkpointer)
 

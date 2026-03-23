@@ -7,7 +7,7 @@ import os
 import time
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from telegram import Update
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
@@ -25,13 +25,39 @@ from agent_diy.agent_backend import (
 logger = logging.getLogger(__name__)
 TELEGRAM_MAX_MESSAGE_CHARS = 4096
 
+if TYPE_CHECKING:
+    from agent_diy.reminder_store import ReminderStore
+
 
 class TelegramBot:
-    def __init__(self, token: str, backend: AgentBackend | None = None):
+    def __init__(
+        self,
+        token: str,
+        backend: AgentBackend | None = None,
+        reminder_store: ReminderStore | None = None,
+    ):
         if not token:
             raise ValueError("TELEGRAM_BOT_TOKEN 未配置")
         self._token = token
-        self._backend = backend or self._default_backend()
+        self._application: Application | None = None
+        self._reminder_store: ReminderStore | None = None
+
+        if backend is None:
+            backend = self._default_backend()
+            if isinstance(backend, InProcessAgentBackend):
+                from agent_diy.core.agent import create_agent
+                from agent_diy.reminder_store import ReminderStore
+                from agent_diy.tools.reminder import make_reminder_tools
+
+                self._reminder_store = reminder_store or ReminderStore()
+                reminder_tools = make_reminder_tools(self._reminder_store)
+                backend = InProcessAgentBackend(agent=create_agent(extra_tools=reminder_tools))
+            else:
+                self._reminder_store = reminder_store
+        else:
+            self._reminder_store = reminder_store
+
+        self._backend = backend
         self._start_time = datetime.now(timezone.utc)
         # Telegram edits are rate-limited; keep updates frequent but bounded.
         self._stream_edit_interval_sec = max(
@@ -212,6 +238,8 @@ class TelegramBot:
         logger.warning("Telegram update handling failed", exc_info=context.error)
 
     def _build_application(self) -> Application:
+        from agent_diy.reminder_scheduler import ReminderScheduler
+
         request = HTTPXRequest(
             connect_timeout=30.0,
             read_timeout=30.0,
@@ -219,11 +247,39 @@ class TelegramBot:
             pool_timeout=5.0,
             httpx_kwargs={"trust_env": False},
         )
-        application = Application.builder().token(self._token).request(request).build()
+        scheduler = None
+        if self._reminder_store is not None:
+            scheduler = ReminderScheduler(
+                store=self._reminder_store,
+                backend=self._backend,
+                send_callback=self.send_proactive_message,
+            )
+
+        async def _post_init(app: Application) -> None:
+            self._application = app
+            if scheduler is not None:
+                scheduler.start()
+
+        async def _post_shutdown(_app: Application) -> None:
+            if scheduler is not None:
+                scheduler.shutdown()
+
+        application = (
+            Application.builder()
+            .token(self._token)
+            .request(request)
+            .post_init(_post_init)
+            .post_shutdown(_post_shutdown)
+            .build()
+        )
         application.add_handler(CommandHandler("clear", self._on_clear_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_text_message))
         application.add_error_handler(self._on_error)
         return application
+
+    async def send_proactive_message(self, user_id: int, text: str) -> None:
+        if self._application is not None:
+            await self._application.bot.send_message(chat_id=user_id, text=text)
 
     def run(self) -> None:
         self._configure_logging()

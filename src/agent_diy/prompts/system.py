@@ -46,12 +46,27 @@ FINANCIAL_NEWS_UNAVAILABLE_PROMPT = (
     "直接说明暂时无法获取最新市场数据，不要调用不存在的金融新闻工具。"
 )
 
+REMINDER_PROMPT = (
+    "当用户要求设置定时提醒时，调用 set_reminder 工具：user_id 使用系统消息中的当前用户ID。"
+    "如果用户说“每天/每晚/固定时间”，使用 time_str=HH:MM（北京时间）设置每日提醒。"
+    "如果用户说“X分钟后/过X分钟”，使用 after_minutes=X 设置一次性提醒，不要改写为每日提醒。"
+    "task 是任务描述（如\"查北京天气\"）。"
+    "若用户要设置提醒但未指定任何时间，必须反问具体时间，不要假设或调用 set_reminder。"
+    "当用户查询已设置的提醒时，调用 list_reminders，user_id 使用当前用户ID。"
+    "当用户取消提醒时，若不知道 reminder_id，先调用 list_reminders 确认，再调用 cancel_reminder。"
+)
 
-def build_system_prompt(*, financial_tools_available: bool) -> str:
+
+def build_system_prompt(
+    *,
+    financial_tools_available: bool,
+    reminder_tools_available: bool = False,
+) -> str:
     base = BASE_SYSTEM_PROMPT
     suffix = (
         FINANCIAL_NEWS_PROMPT
         if financial_tools_available
         else FINANCIAL_NEWS_UNAVAILABLE_PROMPT
     )
-    return base + suffix
+    reminder = REMINDER_PROMPT if reminder_tools_available else ""
+    return base + suffix + reminder

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import os
 import re
+import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from pytest_bdd import given, then
+from pytest_bdd import given, parsers, then, when
 
 from agent_diy.core import agent as agent_module
 from agent_diy.utils import content_to_text
@@ -97,6 +100,79 @@ def qwen_model():
     if not os.getenv("DASHSCOPE_API_KEY"):
         pytest.skip("DASHSCOPE_API_KEY not set")
     return create_dashscope_model()
+
+
+@pytest.fixture
+def ctx():
+    return {
+        "bot": None,
+        "backend": None,
+        "responses": {},
+        "error": None,
+        "last_message": None,
+        "handled_messages": [],
+        "reply_side_effect_sequences": [],
+    }
+
+
+@given("Telegram bot 已初始化")
+def given_bot_initialized(bot_factory):
+    pass
+
+
+@given("backend 处理消息时抛出异常")
+def given_backend_raises_error(ctx):
+    ctx["backend"].raise_error = True
+
+
+@when(parsers.parse('Telegram 收到用户 "{user_id}" 的消息 "{message}"'))
+def when_telegram_receives_message(ctx, user_id, message):
+    sent_message = AsyncMock()
+    sent_message.edit_text = AsyncMock()
+
+    msg = MagicMock()
+    msg.date = datetime.now(timezone.utc)
+    msg.text = message
+    if ctx["reply_side_effect_sequences"]:
+        msg.reply_text = AsyncMock(side_effect=ctx["reply_side_effect_sequences"].pop(0))
+    else:
+        msg.reply_text = AsyncMock(return_value=sent_message)
+
+    update = MagicMock()
+    update.effective_user = MagicMock(id=int(user_id))
+    update.message = msg
+
+    asyncio.run(ctx["bot"]._on_text_message(update, None))
+
+    ctx["last_message"] = msg
+    ctx["handled_messages"].append(msg)
+
+    reply_calls = [call.args[0] for call in msg.reply_text.await_args_list]
+    edit_calls = [call.args[0] for call in sent_message.edit_text.call_args_list]
+
+    if edit_calls:
+        extra_chunks = "".join(reply_calls[1:]) if len(reply_calls) > 1 else ""
+        ctx["responses"][str(user_id)] = edit_calls[-1] + extra_chunks
+    elif reply_calls:
+        ctx["responses"][str(user_id)] = reply_calls[-1]
+    else:
+        ctx["responses"][str(user_id)] = ""
+
+
+@then(parsers.parse('bot 应向用户 "{user_id}" 发送包含 "{keyword}" 的消息'))
+def then_bot_sends_message_with_keyword(ctx, user_id, keyword):
+    assert keyword in ctx["responses"][user_id]
+
+
+@then(parsers.parse('bot 的回复应提及 "{text}"'))
+def then_response_mentions_text(ctx, text):
+    response = list(ctx["responses"].values())[-1]
+    assert text in response
+
+
+@then(parsers.parse('用户 "{user_id}" 的回复不应提及 "{text}"'))
+def then_user_response_should_not_mention_text(ctx, user_id, text):
+    assert text not in ctx["responses"][str(user_id)]
 
 
 @then("the response should not be an error message")

@@ -48,7 +48,12 @@ class InProcessAgentBackend:
             result = await asyncio.to_thread(
                 self._get_agent().invoke,
                 {"messages": [HumanMessage(content=text)]},
-                config={"configurable": {"thread_id": self._thread_id(user_id)}},
+                config={
+                    "configurable": {
+                        "thread_id": self._thread_id(user_id),
+                        "user_id": user_id,
+                    }
+                },
             )
             messages = result.get("messages", [])
             if not messages:
@@ -65,7 +70,12 @@ class InProcessAgentBackend:
             try:
                 for chunk in self._get_agent().stream(
                     {"messages": [HumanMessage(content=text)]},
-                    config={"configurable": {"thread_id": self._thread_id(user_id)}},
+                    config={
+                        "configurable": {
+                            "thread_id": self._thread_id(user_id),
+                            "user_id": user_id,
+                        }
+                    },
                     stream_mode="messages",
                     version="v2",
                 ):
