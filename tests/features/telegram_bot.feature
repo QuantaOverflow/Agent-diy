@@ -137,3 +137,13 @@ Feature: Telegram Bot 接入
     And 用户 "300" 发送命令 "/clear"
     And Telegram 收到用户 "300" 的消息 "你还记得我叫什么名字吗？"
     Then 用户 "300" 的回复不应提及 "小红"
+
+  # ─── E2E：部署后全链路验证 ────────────────────────────────────────
+
+  @e2e
+  Scenario: 通过 Telegram 查询天气并收到包含真实天气数据的流式回复
+    Given Telegram bot 已在 VPS 部署并运行
+    When 向 bot 发送消息 "北京今天天气怎么样？"
+    Then bot 应在 30 秒内回复
+    And 回复内容应包含温度数值
+    And 回复内容应提及 "北京"

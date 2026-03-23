@@ -300,3 +300,59 @@ def then_clear_should_change_session_id(ctx, user_id):
 @then("bot 应回复对话重置确认")
 def then_bot_should_reply_clear_confirmation(ctx):
     assert "重置" in ctx["clear_reply"]
+
+
+# ─── E2E：部署后全链路验证 ────────────────────────────────────────
+
+
+@given("Telegram bot 已在 VPS 部署并运行")
+def given_bot_deployed_on_vps(ctx):
+    import os
+
+    remote_url = os.getenv("AGENT_REMOTE_URL", "").strip()
+    if not remote_url:
+        pytest.skip("AGENT_REMOTE_URL not set")
+    bridge_token = os.getenv("AGENT_BRIDGE_TOKEN", "")
+
+    from agent_diy.agent_backend import RemoteHttpAgentBackend
+
+    ctx["e2e_backend"] = RemoteHttpAgentBackend(
+        remote_url=remote_url,
+        bridge_token=bridge_token,
+        timeout=30.0,
+    )
+
+
+@when(parsers.parse('向 bot 发送消息 "{message}"'))
+def when_send_message_to_bot(ctx, message):
+    async def _collect():
+        chunks = []
+        async for event in ctx["e2e_backend"].stream_reply(user_id=99999, text=message):
+            chunks.append(event.content)
+        return "".join(chunks)
+
+    ctx["e2e_reply"] = asyncio.run(asyncio.wait_for(_collect(), timeout=30.0))
+
+
+@then("bot 应在 30 秒内回复")
+def then_bot_should_reply_within_timeout(ctx):
+    from agent_diy.agent_backend import DEFAULT_ERROR_REPLY, EMPTY_MESSAGES_REPLY
+
+    reply = ctx["e2e_reply"]
+    assert reply, "e2e reply is empty"
+    assert reply != DEFAULT_ERROR_REPLY, f"e2e got error reply: {reply}"
+    assert reply != EMPTY_MESSAGES_REPLY, f"e2e got empty reply: {reply}"
+
+
+@then("回复内容应包含温度数值")
+def then_reply_should_contain_temperature(ctx):
+    assert re.search(r"\d+\.?\d*\s*[°℃]|\d+度", ctx["e2e_reply"]), (
+        f"No temperature found in: {ctx['e2e_reply'][:200]}"
+    )
+
+
+@then(parsers.parse('回复内容应提及 "{keyword}"'))
+def then_e2e_reply_should_mention(ctx, keyword):
+    assert keyword in ctx["e2e_reply"], (
+        f"'{keyword}' not found in: {ctx['e2e_reply'][:200]}"
+    )
