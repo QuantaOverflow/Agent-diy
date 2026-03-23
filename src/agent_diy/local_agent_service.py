@@ -10,8 +10,13 @@ import uvicorn
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from telegram import Bot
 
 from agent_diy.agent_backend import AgentBackend, InProcessAgentBackend
+from agent_diy.core.agent import create_agent
+from agent_diy.reminder_scheduler import ReminderScheduler
+from agent_diy.reminder_store import ReminderStore
+from agent_diy.tools.reminder import make_reminder_tools
 
 
 class ReplyRequest(BaseModel):
@@ -29,8 +34,39 @@ def create_app(
     backend: AgentBackend | None = None,
 ) -> FastAPI:
     token = bridge_token if bridge_token is not None else os.getenv("AGENT_BRIDGE_TOKEN", "")
-    service_backend = backend or InProcessAgentBackend()
+    reminder_store: ReminderStore | None = None
+    reminder_scheduler: ReminderScheduler | None = None
+
+    if backend is None:
+        reminder_store = ReminderStore()
+        reminder_tools = make_reminder_tools(reminder_store)
+        service_backend = InProcessAgentBackend(agent=create_agent(extra_tools=reminder_tools))
+    else:
+        service_backend = backend
     app = FastAPI(title="Local Agent Service")
+
+    if reminder_store is not None:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        bot = Bot(token=bot_token) if bot_token else None
+
+        async def _send_proactive_message(user_id: int, text: str) -> None:
+            if bot is None:
+                return
+            await bot.send_message(chat_id=user_id, text=text)
+
+        reminder_scheduler = ReminderScheduler(
+            store=reminder_store,
+            backend=service_backend,
+            send_callback=_send_proactive_message,
+        )
+
+        @app.on_event("startup")
+        async def _startup() -> None:
+            reminder_scheduler.start()
+
+        @app.on_event("shutdown")
+        async def _shutdown() -> None:
+            reminder_scheduler.shutdown()
 
     @app.post("/v1/telegram/reply", response_model=ReplyResponse)
     async def telegram_reply(
