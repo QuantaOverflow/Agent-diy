@@ -10,7 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
@@ -94,8 +94,16 @@ def _build_graph(
         financial_tools_available=bool(financial_tools),
         reminder_tools_available=bool(extra_tools),
     )
+    reminder_tool_names = {"set_reminder", "list_reminders", "cancel_reminder"}
 
     def llm_call(state: MessagesState, config: RunnableConfig):
+        messages = state["messages"]
+        if messages:
+            last_message = messages[-1]
+            if isinstance(last_message, ToolMessage) and last_message.name in reminder_tool_names:
+                # Reminder tools should be rendered verbatim to avoid LLM paraphrase distortion.
+                return {"messages": [AIMessage(content=last_message.content)]}
+
         configurable = config.get("configurable", {})
         raw_user_id = configurable.get("user_id")
         thread_id = configurable.get("thread_id", "")
@@ -107,7 +115,7 @@ def _build_graph(
         system = SystemMessage(
             content=system_prompt + f"\n当前北京时间：{now}\n当前用户ID：{user_id}"
         )
-        response = model_with_tools.invoke([system] + state["messages"])
+        response = model_with_tools.invoke([system] + messages)
         return {"messages": [response]}
 
     tool_node = ToolNode(tools)

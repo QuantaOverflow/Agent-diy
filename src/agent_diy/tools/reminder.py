@@ -81,4 +81,22 @@ def make_reminder_tools(store: ReminderStore) -> list:
             return f"已取消提醒 ID {reminder_id}。"
         return f"未找到提醒 ID {reminder_id}，请用查看提醒确认 ID 是否正确。"
 
-    return [set_reminder, list_reminders, cancel_reminder]
+    @lc_tool
+    def cancel_reminder_by_task(user_id: int, task_keyword: str) -> str:
+        """按任务关键词取消提醒（用于用户未提供 reminder_id 的自然语言取消场景）。
+
+        Args:
+            user_id: 当前用户 ID
+            task_keyword: 任务关键词，例如“天气”“喝水”
+        """
+        keyword = (task_keyword or "").strip()
+        if not keyword:
+            return "请提供要取消的提醒关键词。"
+        reminders = store.list(user_id)
+        for reminder in reminders:
+            if keyword in reminder.task:
+                store.cancel(user_id, reminder.id)
+                return f"已取消提醒 ID {reminder.id}。"
+        return f"未找到包含“{keyword}”的提醒。"
+
+    return [set_reminder, list_reminders, cancel_reminder, cancel_reminder_by_task]

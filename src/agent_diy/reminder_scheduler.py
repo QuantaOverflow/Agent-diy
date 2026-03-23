@@ -59,7 +59,12 @@ class ReminderScheduler:
         if entry is None:
             return
         try:
-            result = await self._backend.reply(user_id, task)
+            reminder_prompt = (
+                "这是定时提醒触发。请先明确提醒用户“任务已到时间”，"
+                "不要假设用户已经完成任务。"
+                f"若任务需要信息查询再执行并给出结果。任务：{task}"
+            )
+            result = await self._backend.reply(user_id, reminder_prompt)
         except Exception:
             result = f"出错：任务执行失败（{task}），请稍后重试"
         await self._send_callback(user_id, result)

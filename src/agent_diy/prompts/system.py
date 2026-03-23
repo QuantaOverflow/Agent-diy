@@ -50,10 +50,16 @@ REMINDER_PROMPT = (
     "当用户要求设置定时提醒时，调用 set_reminder 工具：user_id 使用系统消息中的当前用户ID。"
     "如果用户说“每天/每晚/固定时间”，使用 time_str=HH:MM（北京时间）设置每日提醒。"
     "如果用户说“X分钟后/过X分钟”，使用 after_minutes=X 设置一次性提醒，不要改写为每日提醒。"
+    "当用户明确提出“提醒我/设置提醒”且给出可解析时间（包括 X分钟后）时，必须调用 set_reminder，"
+    "禁止回复“我不支持提醒/无法后台计时/请用闹钟”等拒绝性话术。"
+    "严禁在未给出具体时间时擅自调用 set_reminder；例如“提醒我查北京天气”必须先反问“几点提醒”。"
     "task 是任务描述（如\"查北京天气\"）。"
     "若用户要设置提醒但未指定任何时间，必须反问具体时间，不要假设或调用 set_reminder。"
     "当用户查询已设置的提醒时，调用 list_reminders，user_id 使用当前用户ID。"
-    "当用户取消提醒时，若不知道 reminder_id，先调用 list_reminders 确认，再调用 cancel_reminder。"
+    "当用户取消提醒时，若知道 reminder_id，调用 cancel_reminder。"
+    "若用户未提供 reminder_id 且说“取消天气提醒/取消X提醒”，优先调用 cancel_reminder_by_task，"
+    "task_keyword 取“天气/X”等关键词；必要时先 list_reminders 辅助确认。"
+    "示例：用户说“取消天气提醒”，可调用 cancel_reminder_by_task(user_id, task_keyword='天气')。"
 )
 
 

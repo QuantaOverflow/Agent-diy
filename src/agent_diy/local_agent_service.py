@@ -44,6 +44,8 @@ def create_app(
     else:
         service_backend = backend
     app = FastAPI(title="Local Agent Service")
+    app.state.reminder_store = reminder_store
+    app.state.reminder_scheduler = None
 
     if reminder_store is not None:
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -59,6 +61,7 @@ def create_app(
             backend=service_backend,
             send_callback=_send_proactive_message,
         )
+        app.state.reminder_scheduler = reminder_scheduler
 
         @app.on_event("startup")
         async def _startup() -> None:
