@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentBackend(Protocol):
-    async def reply(self, user_id: int, text: str) -> str:
+    async def reply(self, user_id: int, text: str, *, thread_id: str | None = None) -> str:
         """Generate a reply string for a user's message."""
 
     def stream_reply(self, user_id: int, text: str) -> AsyncIterator[StreamEvent]:
@@ -43,14 +43,15 @@ class InProcessAgentBackend:
             self._agent = create_agent()
         return self._agent
 
-    async def reply(self, user_id: int, text: str) -> str:
+    async def reply(self, user_id: int, text: str, *, thread_id: str | None = None) -> str:
+        actual_thread_id = thread_id or self._thread_id(user_id)
         try:
             result = await asyncio.to_thread(
                 self._get_agent().invoke,
                 {"messages": [HumanMessage(content=text)]},
                 config={
                     "configurable": {
-                        "thread_id": self._thread_id(user_id),
+                        "thread_id": actual_thread_id,
                         "user_id": user_id,
                     }
                 },
@@ -123,7 +124,8 @@ class RemoteHttpAgentBackend:
             return self._remote_url[: -len("/v1/telegram/reply")] + "/v1/telegram/stream"
         return self._remote_url.rstrip("/") + "/stream"
 
-    async def reply(self, user_id: int, text: str) -> str:
+    async def reply(self, user_id: int, text: str, *, thread_id: str | None = None) -> str:
+        _ = thread_id
         if not self._remote_url:
             return DEFAULT_ERROR_REPLY
 

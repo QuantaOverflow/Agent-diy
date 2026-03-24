@@ -59,12 +59,18 @@ class ReminderScheduler:
         if entry is None:
             return
 
-        try:
-            reminder_prompt = f"现在是提醒时间，请提醒用户执行：{task}"
-            result = await self._backend.reply(user_id, reminder_prompt)
-        except Exception:
-            result = f"出错：任务执行失败（{task}），请稍后重试"
-        await self._send_callback(user_id, result)
+        if entry.mode == "remind":
+            await self._send_callback(user_id, f"⏰ 提醒：{task}")
+        else:
+            try:
+                result = await self._backend.reply(
+                    user_id,
+                    task,
+                    thread_id=f"scheduler_{reminder_id}",
+                )
+            except Exception:
+                result = f"出错：任务执行失败（{task}），请稍后重试"
+            await self._send_callback(user_id, result)
         if entry.schedule_type == "once":
             self._store.complete_once(reminder_id)
 
