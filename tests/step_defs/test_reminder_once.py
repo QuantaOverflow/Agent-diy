@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
@@ -47,7 +46,7 @@ def isolate_store(reminder_store):
 def ctx(reminder_store):
     return {
         "bot": None,
-        "backend": None,
+        "backend": FakeBackend(reply_text="北京天气：晴，20°C"),
         "responses": {},
         "error": None,
         "last_message": None,
@@ -77,23 +76,8 @@ def bot_factory(ctx):
 @given(parsers.parse('用户 "{user_id}" 已设置一次性提醒 "{task}"'))
 def given_user_has_once_reminder(ctx, user_id, task):
     run_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-    entry = ctx["reminder_store"].add_once(int(user_id), task, run_at, mode="remind")
+    entry = ctx["reminder_store"].add_once(int(user_id), task, run_at)
     ctx["pending_reminder"] = entry
-
-
-@given(parsers.parse('用户 "{user_id}" 已设置一次性提醒型任务 "{task}"'))
-def given_user_has_once_remind_task(ctx, user_id, task):
-    run_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-    entry = ctx["reminder_store"].add_once(int(user_id), task, run_at, mode="remind")
-    ctx["pending_reminder"] = entry
-
-
-@given(parsers.parse('用户 "{user_id}" 已设置一次性执行型任务 "{task}"'))
-def given_user_has_once_execute_task(ctx, user_id, task):
-    run_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-    entry = ctx["reminder_store"].add_once(int(user_id), task, run_at, mode="execute")
-    ctx["pending_reminder"] = entry
-    ctx["backend"] = FakeBackend(reply_text="北京天气：晴，20°C")
 
 
 @when(parsers.parse('用户 "{user_id}" 的提醒在预定时间触发'))
@@ -131,13 +115,3 @@ def then_user_has_n_reminders(ctx, user_id, count):
 def then_bot_proactively_sends(ctx, user_id):
     msgs = ctx["proactive_messages"]
     assert any(uid == int(user_id) and text for uid, text in msgs)
-
-
-@then(parsers.parse('bot 应主动向用户 "{user_id}" 发送固定提醒文案'))
-def then_bot_sends_fixed_reminder_text(ctx, user_id):
-    uid = int(user_id)
-    msgs = ctx["proactive_messages"]
-    assert any(u == uid and "提醒" in t for u, t in msgs), f"未找到固定提醒文案: {msgs}"
-    for u, t in msgs:
-        if u == uid:
-            assert "已完成" not in t and "已记录" not in t, f"出现错误话术: {t}"

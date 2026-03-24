@@ -14,7 +14,6 @@ class Reminder:
     time_str: str  # daily: "HH:MM"；once: 本地展示时间 "YYYY-MM-DD HH:MM"
     schedule_type: str = "daily"  # "daily" | "once"
     run_at: datetime | None = None
-    mode: str = "execute"  # "remind" | "execute"
 
 
 class ReminderStore:
@@ -25,7 +24,7 @@ class ReminderStore:
         self.on_add: Callable[[Reminder], None] | None = None
         self.on_cancel: Callable[[int], None] | None = None
 
-    def add(self, user_id: int, task: str, time_str: str, mode: str = "execute") -> Reminder:
+    def add(self, user_id: int, task: str, time_str: str) -> Reminder:
         with self._lock:
             entry = Reminder(
                 self._next_id,
@@ -33,7 +32,6 @@ class ReminderStore:
                 task,
                 time_str,
                 schedule_type="daily",
-                mode=mode,
             )
             self._data.setdefault(user_id, []).append(entry)
             self._next_id += 1
@@ -46,7 +44,7 @@ class ReminderStore:
                 raise
         return entry
 
-    def add_once(self, user_id: int, task: str, run_at: datetime, mode: str = "execute") -> Reminder:
+    def add_once(self, user_id: int, task: str, run_at: datetime) -> Reminder:
         with self._lock:
             entry = Reminder(
                 self._next_id,
@@ -55,7 +53,6 @@ class ReminderStore:
                 run_at.strftime("%Y-%m-%d %H:%M"),
                 schedule_type="once",
                 run_at=run_at,
-                mode=mode,
             )
             self._data.setdefault(user_id, []).append(entry)
             self._next_id += 1

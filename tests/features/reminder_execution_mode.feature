@@ -1,42 +1,27 @@
-Feature: 定时任务执行模式
-  作为 Telegram 用户，我设置的定时提醒应根据任务类型采用不同的执行方式：
-  - 提醒型（如"喝水"、"起身"）：到时发固定提醒文案，不调用 AI
-  - 执行型（如"查天气"、"看星座"）：到时自动调用 AI 执行并返回结果
-
-  # ─── Unit 层：验证执行模式路由逻辑 ──────────────────────────────────────
+Feature: 定时任务触发执行
+  作为 Telegram 用户，我设置的定时提醒到时间后，bot 会自动调用 AI 执行该任务并将结果发送给我。
 
   @unit
-  Scenario: 提醒型任务触发时发固定文案，不走 agent
-    Given 用户 "100" 已设置提醒型任务 "喝水"
-    When 用户 "100" 的提醒在预定时间触发
-    Then bot 应主动向用户 "100" 发送固定提醒文案
-    And bot 不应调用 backend 处理该提醒
-
-  @unit
-  Scenario: 执行型任务触发时调用 agent 并发结果
-    Given 用户 "100" 已设置执行型任务 "查北京天气"
+  Scenario: 提醒触发时调用 agent 并推送结果
+    Given 用户 "100" 已设置提醒 "喝水"
     When 用户 "100" 的提醒在预定时间触发
     Then bot 应主动向用户 "100" 发送包含任务结果的消息
 
   @unit
-  Scenario: 执行型任务 backend 报错时发错误提示
-    Given 用户 "100" 已设置执行型任务 "查北京天气"
+  Scenario: backend 报错时推送错误提示
+    Given 用户 "100" 已设置提醒 "查北京天气"
     And backend 处理消息时抛出异常
     When 用户 "100" 的提醒在预定时间触发
     Then bot 应向用户 "100" 发送包含 "出错" 的消息
 
-  # ─── Integration 层：验证 LLM 正确识别任务类型 ──────────────────────────
-
   @integration
-  Scenario: LLM 识别提醒型意图，触发时发固定文案
+  Scenario Outline: 定时触发时 LLM 自然响应各类任务
     Given Telegram bot 已初始化
-    And 用户 "100" 已通过消息 "每天早上8点提醒我喝水" 设置了提醒
-    When 用户 "100" 的提醒在预定时间触发
-    Then bot 应主动向用户 "100" 发送固定提醒文案
-
-  @integration
-  Scenario: LLM 识别执行型意图，触发时发查询结果
-    Given Telegram bot 已初始化
-    And 用户 "100" 已通过消息 "每天早上9点帮我查北京天气" 设置了提醒
+    And 用户 "100" 已设置提醒 "<task>"
     When 用户 "100" 的提醒在预定时间触发
     Then bot 应主动向用户 "100" 发送包含任务结果的消息
+
+    Examples:
+      | task       |
+      | 喝水       |
+      | 查北京天气 |

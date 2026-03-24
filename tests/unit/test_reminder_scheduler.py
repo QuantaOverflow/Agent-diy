@@ -8,12 +8,12 @@ from agent_diy.reminder_scheduler import ReminderScheduler
 from agent_diy.reminder_store import ReminderStore
 
 
-def test_fire_plain_task_sends_deterministic_reminder_without_backend():
+def test_fire_task_calls_backend_and_sends_result():
     async def _case():
         store = ReminderStore()
-        entry = store.add_once(1, "喝水", datetime.now(), mode="remind")
+        entry = store.add_once(1, "喝水", datetime.now())
         backend = AsyncMock()
-        backend.reply = AsyncMock(return_value="请记得喝水")
+        backend.reply = AsyncMock(return_value="该喝水了！")
         sent: list[tuple[int, str]] = []
 
         async def _send(uid: int, text: str):
@@ -22,8 +22,8 @@ def test_fire_plain_task_sends_deterministic_reminder_without_backend():
         scheduler = ReminderScheduler(store=store, backend=backend, send_callback=_send)
         await scheduler._fire(1, entry.task, entry.id)
 
-        backend.reply.assert_not_awaited()
-        assert sent == [(1, "⏰ 提醒：喝水")]
+        backend.reply.assert_awaited_once_with(1, "喝水", thread_id=f"scheduler_{entry.id}")
+        assert sent == [(1, "该喝水了！")]
 
     asyncio.run(_case())
 
